@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quantized-teacher-opd"
+version = "0.1.0"
+description = "Phase 0 pipeline for quantized-teacher on-policy distillation experiments"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "accelerate>=1.4,<2",
+  "bitsandbytes>=0.48,<1",
+  "datasets>=4.7,<5",
+  "huggingface-hub>=0.35,<2",
+  "safetensors>=0.5,<1",
+  "torch>=2.7,<3",
+  "transformers>=4.56.2,<6",
+  "trl==1.6.0",
+]
+
+[project.scripts]
+opd-check-env = "opd_phase0.env_check:main"
+opd-prepare-data = "opd_phase0.prepare_data:main"
+opd-diagnose = "opd_phase0.diagnostics:main"
+opd-train-smoke = "opd_phase0.train_smoke:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<10",
+  "ruff>=0.11,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opd_phase0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+

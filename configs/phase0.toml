@@ -1,0 +1,48 @@
+[models]
+student = "Qwen/Qwen3-1.7B"
+teachers = ["Qwen/Qwen3-4B", "Qwen/Qwen3-14B"]
+precisions = ["bf16", "int8", "int4"]
+revision = "main"
+attention_implementation = "sdpa"
+
+[data]
+dataset = "open-r1/OpenR1-Math-220k"
+split = "train"
+revision = "main"
+prompt_fields = ["problem", "question"]
+seed = 2026
+calibration_size = 1000
+training_size = 10000
+smoke_size = 16
+output_dir = "data/phase0"
+
+[[evaluation.datasets]]
+name = "math500"
+dataset = "HuggingFaceH4/MATH-500"
+split = "test"
+revision = "main"
+
+[[evaluation.datasets]]
+name = "gsm8k"
+dataset = "openai/gsm8k"
+config = "main"
+split = "test"
+revision = "main"
+
+[diagnostics]
+prompt = "What is 17 multiplied by 23? Show your reasoning and give the final answer."
+warmup_steps = 1
+timed_steps = 3
+output_dir = "artifacts/phase0/diagnostics"
+
+[training]
+seed = 2026
+max_steps = 2
+max_length = 384
+max_completion_length = 128
+per_device_train_batch_size = 1
+gradient_accumulation_steps = 2
+learning_rate = 1e-6
+optimizer = "adamw_torch_fused"
+output_dir = "outputs/phase0"
+
