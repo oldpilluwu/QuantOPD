@@ -102,12 +102,18 @@ def load_benchmark(
     indices = recorded["indices"]
     if limit is not None:
         indices = indices[:limit]
+    available = set(dataset.column_names)
+    missing = [name for name in benchmark.group_fields if name not in available]
+    if missing:
+        raise ValueError(f"{benchmark.name} has no column(s) {missing}; available: {sorted(available)}")
+
     return [
         {
             "item_index": position,
             "source_index": source_index,
             "question": dataset[source_index][benchmark.question_field],
             "answer": dataset[source_index][benchmark.answer_field],
+            "groups": {name: dataset[source_index][name] for name in benchmark.group_fields},
         }
         for position, source_index in enumerate(indices)
     ]

@@ -26,6 +26,9 @@ split = "test"
 revision = "main"
 question_field = "problem"
 answer_field = "answer"
+# Sliced in the report: MATH-500 ships a 1-5 difficulty level, so a headline score that is
+# ceilinged on easy items is visible without regenerating anything.
+group_fields = ["level", "subject"]
 
 [[evaluation.datasets]]
 name = "gsm8k"

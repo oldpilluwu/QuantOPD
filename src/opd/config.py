@@ -43,6 +43,8 @@ class EvaluationDatasetConfig:
     question_field: str
     answer_field: str
     subsample_size: int | None
+    # Columns carried into per-item records so accuracy can be sliced without regenerating.
+    group_fields: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -191,6 +193,7 @@ def load_config(path: str | Path = DEFAULT_CONFIG) -> ExperimentConfig:
             question_field=item["question_field"],
             answer_field=item["answer_field"],
             subsample_size=(None if item.get("subsample_size") is None else int(item["subsample_size"])),
+            group_fields=tuple(item.get("group_fields", ())),
         )
         for item in raw.get("evaluation", {}).get("datasets", [])
     )

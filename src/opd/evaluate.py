@@ -14,6 +14,7 @@ import argparse
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 from .common import atomic_write_json, slug
 from .config import DEFAULT_CONFIG, load_config
@@ -135,6 +136,7 @@ def main() -> None:
                 "gold": gold,
                 "completion_tokens": len(completion.token_ids),
                 "finish_reason": completion.finish_reason,
+                **item["groups"],
                 **result.as_dict(),
             }
         )
@@ -154,6 +156,25 @@ def main() -> None:
     accuracy["correct_while_truncated"] = sum(
         1 for g, c in zip(grades, completions, strict=True) if c.truncated and g.correct
     )
+
+    # Slice accuracy by whatever grouping columns the benchmark declares (MATH-500 difficulty
+    # level, subject). Free -- the completions already exist -- and it shows immediately whether a
+    # headline score is hiding a ceiling on the easy items.
+    breakdown: dict[str, dict[str, Any]] = {}
+    for field_name in benchmark.group_fields:
+        buckets: dict[str, list[tuple[int, int]]] = {}
+        for item, g, c in zip(items, grades, completions, strict=True):
+            buckets.setdefault(str(item["groups"][field_name]), []).append(
+                (1 if g.correct else 0, 1 if c.truncated else 0)
+            )
+        breakdown[field_name] = {
+            key: {
+                "count": len(entries),
+                "accuracy": sum(correct for correct, _ in entries) / len(entries),
+                "truncation_rate": sum(cut for _, cut in entries) / len(entries),
+            }
+            for key, entries in sorted(buckets.items())
+        }
 
     tag = args.tag or ("checkpoint" if args.checkpoint else "base")
     output_dir = settings.output_dir / f"{condition_slug(model_id, args.precision)}-{slug(tag)}" / args.benchmark
@@ -179,6 +200,7 @@ def main() -> None:
         },
         "decoding": {"greedy": True, "max_new_tokens": settings.max_new_tokens},
         "accuracy": accuracy,
+        "accuracy_by_group": breakdown,
         "generation": {
             "completion_tokens": completion_tokens,
             "mean_completion_tokens": completion_tokens / len(completions),
