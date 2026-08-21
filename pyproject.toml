@@ -40,11 +40,14 @@ dev = [
 ]
 
 [tool.uv]
-# The GPU server is x86_64 Linux, but the lock is often regenerated from a non-Linux dev machine.
-# Without this, uv is free to pick vLLM dependency versions that publish only aarch64 wheels
-# (xgrammar 0.2.4 did), which then fail to install on the server. Requiring the target environment
-# forces the resolution to versions that actually have x86_64 Linux wheels.
+# The GPU server is x86_64 Linux; the lock is often regenerated from a non-Linux dev machine.
 required-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+# xgrammar 0.2.4 is a broken release: it published 13 files instead of the usual 35 and ships no
+# cp312 Linux x86_64 wheel, so `uv sync --extra vllm` fails on a Python 3.12 x86_64 server. Its
+# cp311 x86_64 wheel does exist, which is enough to satisfy required-environments above -- hence
+# the explicit exclusion. vLLM 0.19 asks only for xgrammar>=0.1.32,<1.0.0, so 0.2.3 is fine.
+constraint-dependencies = ["xgrammar!=0.2.4"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/opd"]

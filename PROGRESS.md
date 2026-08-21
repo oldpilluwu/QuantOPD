@@ -83,12 +83,21 @@ Adding the `vllm` extra re-resolved the lock to **torch 2.10.0 / transformers 4.
 platform (vLLM 0.19 constrains both). This applies on the GPU server **even when bootstrapping
 with `INSTALL_VLLM=0`**.
 
-`[tool.uv] required-environments` pins the resolution to x86_64 Linux. Without it, locking from a
-non-Linux dev machine picked `xgrammar 0.2.4`'s aarch64-only wheel and `uv sync --extra vllm`
-failed on the server with "doesn't have a source distribution or wheel for the current platform".
-Adding the constraint also collapsed the resolution to a single fork, so the dev machine and the
-server now run the same versions instead of diverging (previously Windows resolved torch 2.13 /
-transformers 5.15).
+Two uv settings are needed to make `uv sync --extra vllm` work on the server:
+
+- `required-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]` — the lock
+  is regenerated from a non-Linux dev machine, so uv otherwise has no reason to prefer wheels the
+  server can install. This also collapsed the resolution to a single fork, so the dev machine and
+  the server now run identical versions instead of diverging (Windows previously resolved
+  torch 2.13 / transformers 5.15).
+- `constraint-dependencies = ["xgrammar!=0.2.4"]` — **xgrammar 0.2.4 is a broken release.** It
+  published 13 files where neighbouring versions publish 35, and ships no cp312 Linux x86_64 wheel;
+  0.2.3 and 0.2.5-rc do. Its cp311 x86_64 wheel *does* exist, which was enough to satisfy
+  `required-environments`, so the first fix alone still failed on the Python 3.12 server. vLLM 0.19
+  asks only for `xgrammar>=0.1.32,<1.0.0`, so pinning away from 0.2.4 costs nothing.
+
+When regenerating the lock, verify wheel coverage rather than assuming it: every ABI-specific
+package must have a `manylinux ... x86_64` wheel for **each** `cpXY` it targets, not just one.
 
 Consequence: the Phase 0 table above was measured on torch 2.13 / transformers 5.15 and may not
 reproduce byte-for-byte. Every report written by the new CLIs records its own package versions via
