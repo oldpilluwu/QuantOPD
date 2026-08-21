@@ -50,14 +50,21 @@ def build_vllm_engine(
     gpu_memory_utilization: float,
     max_model_length: int,
     seed: int,
+    dtype: str = "bfloat16",
 ):  # pragma: no cover - requires a GPU
+    """Build a vLLM engine.
+
+    ``dtype`` must be ``"auto"`` for a pre-quantized checkpoint: AWQ ships fp16 and its kernels are
+    built for it, so forcing bfloat16 either errors or silently changes the arithmetic. vLLM reads
+    ``quantization_config`` from the checkpoint itself, so the quantization format needs no flag.
+    """
     llm_class, _ = load_vllm()
     return llm_class(
         model=model_id,
         revision=revision,
         tokenizer=model_id,
         tokenizer_revision=revision,
-        dtype="bfloat16",
+        dtype=dtype,
         tensor_parallel_size=1,
         gpu_memory_utilization=gpu_memory_utilization,
         max_model_len=max_model_length,

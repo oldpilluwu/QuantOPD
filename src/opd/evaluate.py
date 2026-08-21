@@ -132,6 +132,8 @@ def main() -> None:
             gpu_memory_utilization=settings.vllm_gpu_memory_utilization,
             max_model_length=settings.vllm_max_model_length,
             seed=settings.seed,
+            # A pre-quantized checkpoint states its own compute dtype; AWQ is fp16.
+            dtype="auto" if args.precision in PREQUANTIZED_PRECISIONS else "bfloat16",
         )
         started = time.perf_counter()
         completions: list[Completion] = generate_vllm(
