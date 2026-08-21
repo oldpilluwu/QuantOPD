@@ -37,7 +37,7 @@ class StubModel(torch.nn.Module):
         batch, width = input_ids.shape
         lengths = []
         for row in range(batch):
-            real = [int(t) for t, m in zip(input_ids[row].tolist(), attention_mask[row].tolist()) if m]
+            real = [int(t) for t, m in zip(input_ids[row].tolist(), attention_mask[row].tolist(), strict=True) if m]
             self.seen_prompts.append(real)
             lengths.append(min(self.lengths_by_prompt[len(real)], max_new_tokens))
         steps = max(lengths)
