@@ -10,12 +10,12 @@ two-step OPD smoke training on an NVIDIA RTX A6000 (49,140 MiB, driver 610.43.02
 
 **Jump-ahead pilot: implemented; benchmarking verified on GPU, nothing else run yet.** A vertical
 slice covering benchmarking, trajectory scoring, OPD, and re-benchmarking exists on branch
-`jump-ahead` (61 CPU tests, `ruff` clean). Benchmark evaluation has run on the A6000 for the
-student and the 4B BF16 teacher; see "First GPU results" below.
+`jump-ahead` (67 CPU tests, `ruff` clean). Benchmark evaluation has run on the A6000 for the
+student and both teachers; see "First GPU results" below, which already contains a result worth
+acting on.
 
-**Not yet run on GPU:** the 14B INT4 teacher, Omni-MATH, trajectory generation, scoring, and OPD
-training itself. The only measured numbers in this document are the Phase 0 table and the First
-GPU results table.
+**Not yet run on GPU:** Omni-MATH, trajectory generation, scoring, and OPD training itself. The
+only measured numbers in this document are the Phase 0 table and the First GPU results table.
 
 An earlier `phase-1` branch and a downloaded trajectory bundle exist but were deliberately
 abandoned in favour of this simpler implementation. They are untouched, not merged, and not used.
@@ -123,19 +123,39 @@ the way OPD samples.
 
 ## First GPU results (MATH-500, first 100 items, non-thinking, 1024-token budget)
 
-| Model | Precision | accuracy | on finished | truncation | mean tokens |
-| --- | --- | ---: | ---: | ---: | ---: |
-| Qwen3-1.7B (student) | BF16 | 0.70 | 0.821 | 0.16 | 532.4 |
-| Qwen3-4B (teacher) | BF16 | 0.81 | 0.940 | 0.16 | 531.8 |
+| Model | Precision | accuracy | on finished | truncation | mean tokens | backend |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| Qwen3-1.7B (student) | BF16 | 0.70 | 0.821 | 0.16 | 532.4 | vLLM |
+| Qwen3-4B (teacher) | BF16 | 0.81 | 0.940 | 0.16 | 531.8 | vLLM |
+| Qwen3-14B (teacher) | INT4 | 0.81 | 0.942 | 0.14 | 526.2 | Transformers |
+
+**The two teachers are indistinguishable on this benchmark.** A 3.5x larger teacher at comparable
+memory (9.05 vs 7.49 GiB) buys nothing measurable. Two explanations with opposite implications:
+
+1. MATH-500 is saturated: both teachers sit at ~0.94 on finished completions, so only ~6% headroom
+   remains and teacher capability is no longer being measured.
+2. INT4 quantization damage cancels the scale advantage.
+
+**Qwen3-14B BF16 separates them.** It is 27.5 GiB, too large to be an OPD teacher on this card, but
+inference-only it fits (BF16 routes through vLLM, so it is also fast). If it also scores ~0.81,
+MATH-500 is saturated. If it scores meaningfully higher, INT4 damaged the teacher -- which would be
+a Phase 1 fidelity result arriving early.
+
+This does **not** show the teachers are equally good for distillation. Benchmark accuracy is an
+argmax-only summary; the OPD objective consumes full token-level distributions. Two teachers can
+tie on accuracy and supervise very differently. It does mean the trajectory-scoring stage is now
+the load-bearing measurement rather than a diagnostic, and that a harder benchmark is required
+rather than optional.
+
+Caveats: n=100 gives roughly a +/-9 point interval. The teachers ran on different backends (vLLM
+for BF16, Transformers for INT4), though greedy decoding makes that a small effect and the
+agreement is closer than backend noise would explain. Identical 0.16 truncation and near-identical
+mean length across all three models is unexplained; accuracy differs enough that the models are
+clearly distinct, so it is most likely difficulty-driven.
 
 The pipeline works end to end and the `dtype=` kwarg is fine on transformers 4.57.6. Parse-failure
-rate was 0.0 for both. Truncated completions are near-uniformly wrong: 69 of the student's 70
+rate was 0.0 throughout. Truncated completions are near-uniformly wrong: 69 of the student's 70
 correct answers came from finished completions.
-
-Caveats: n=100 gives roughly a +/-9 point interval, so the 11-point gap is only just outside noise.
-Identical 0.16 truncation and near-identical mean length for both models is unexplained and worth
-one overlap check on the per-item files; accuracy differs enough that the models are clearly
-distinct, so it is most likely difficulty-driven.
 
 ## Benchmark change after those results
 
