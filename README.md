@@ -109,14 +109,24 @@ available too, but requires the `flash-attn` package and helps far less than bat
 `--backend vllm` is rejected for quantized precisions: the engine loads unquantized weights, so it
 would report INT4 while measuring BF16.
 
-`--precision awq` loads a **pre-quantized checkpoint** (`Qwen/Qwen3-14B-AWQ`, 9.29 GiB -- a near
-match for bitsandbytes NF4's 9.05 GiB, so quantizer-vs-quantizer is controlled for memory). It is a
-separate model id, not a flag on the base model, and the loader honours the checkpoint's own
-float16 compute dtype because AWQ GEMM kernels are built for it. The run aborts if the checkpoint's
+### Pre-quantized teachers
+
+`--precision awq` and `--precision gptq` load **pre-quantized checkpoints** . Three 4-bit quantizers land at near-identical
+memory, which makes quantizer-vs-quantizer controlled:
+
+| Checkpoint | Quantizer | Size |
+| --- | --- | ---: |
+| `Qwen/Qwen3-14B` + `--precision int4` | bitsandbytes NF4 | 9.05 GiB (measured) |
+| `Qwen/Qwen3-14B-AWQ` | AWQ (official Qwen) | 9.29 GiB |
+| `JunHowie/Qwen3-14B-GPTQ-Int4` | GPTQ, `gptqmodel` 4.0 | 9.30 GiB |
+
+Each is a separate model id, not a flag on the base model, and the loader honours the checkpoint's
+own compute dtype (AWQ ships fp16, and its GEMM kernels are built for it). The run aborts if the checkpoint's
 `quant_method` does not match the requested precision, so a base model can never be measured as
-AWQ. By default AWQ runs on the **Transformers** path like every other quantized teacher, which needs
-`autoawq` -- archived upstream, kernels last built against torch 2.5. If that fails, add
-`--backend vllm`: vLLM reads `quantization_config` from the checkpoint and detects AWQ itself, so
+AWQ. By default these run on the **Transformers** path like every other quantized teacher, which needs a
+kernel package: `autoawq` for AWQ (archived upstream, kernels last built against torch 2.5) or
+`gptqmodel` for GPTQ (actively maintained, but sdist-only so it compiles on install). If either
+fails, add `--backend vllm`: vLLM reads `quantization_config` from the checkpoint and detects AWQ itself, so
 no `autoawq` is required and the weights are genuinely AWQ, not BF16. The cost is different kernels
 (vLLM's Marlin vs AutoAWQ's GEMM) from the Transformers teacher OPD trains against, so a
 vLLM-served number is not directly comparable to a Transformers-path teacher. The backend is
@@ -124,6 +134,11 @@ recorded in every report, and the command warns when this applies.
 
 That escape hatch does **not** extend to bitsandbytes: INT4/INT8 are load-time flags rather than
 properties of the checkpoint, so vLLM would serve BF16 under a quantized label. Those stay refused.
+
+**GGUF and FP8 are deliberately not supported.** Transformers loads GGUF by *dequantizing* it to
+full precision, which gives 4-bit quality at 16-bit memory -- the opposite of what a teacher-memory
+study needs -- and llama.cpp cannot emit full 151,936-way logits into TRL's teacher interface.
+`Qwen/Qwen3-14B-FP8` exists, but FP8 tensor cores need compute capability 8.9+; the A6000 is 8.6.
 
 Accuracy is also sliced by whatever grouping columns a benchmark declares (`level` and `subject`
 for MATH-500, `difficulty` for Omni-MATH) into `accuracy_by_group`. That slice is free — the

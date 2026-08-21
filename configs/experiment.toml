@@ -3,8 +3,16 @@ student = "Qwen/Qwen3-1.7B"
 # Qwen3-14B-AWQ is a separate checkpoint, not a load-time conversion of Qwen3-14B: AWQ ships
 # already quantized. At 9.29 GiB it is a near-exact memory match for bitsandbytes NF4's measured
 # 9.05 GiB, which makes quantizer-vs-quantizer a controlled comparison.
-teachers = ["Qwen/Qwen3-4B", "Qwen/Qwen3-14B", "Qwen/Qwen3-14B-AWQ"]
-precisions = ["bf16", "int8", "int4", "awq"]
+# Three 4-bit quantizers at near-identical memory, which makes quantizer-vs-quantizer a
+# controlled comparison: bitsandbytes NF4 9.05 GiB (measured), AWQ 9.29 GiB, GPTQ 9.30 GiB.
+# The AWQ and GPTQ entries are separate checkpoints, not flags on Qwen3-14B.
+teachers = [
+  "Qwen/Qwen3-4B",
+  "Qwen/Qwen3-14B",
+  "Qwen/Qwen3-14B-AWQ",
+  "JunHowie/Qwen3-14B-GPTQ-Int4",
+]
+precisions = ["bf16", "int8", "int4", "awq", "gptq"]
 revision = "main"
 attention_implementation = "sdpa"
 # Qwen3 defaults to thinking mode. The pilot runs non-thinking: with thinking on and a 2k budget,

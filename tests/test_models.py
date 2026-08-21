@@ -47,9 +47,10 @@ class QuantizationConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             make_quantization_config("fp8")
 
-    def test_awq_is_a_valid_precision(self) -> None:
-        self.assertIn("awq", VALID_PRECISIONS)
-        self.assertIn("awq", PREQUANTIZED_PRECISIONS)
+    def test_prequantized_precisions_are_valid(self) -> None:
+        for precision in ("awq", "gptq"):
+            self.assertIn(precision, VALID_PRECISIONS, msg=precision)
+            self.assertIn(precision, PREQUANTIZED_PRECISIONS, msg=precision)
 
 
 class VerifyPrequantizedTest(unittest.TestCase):
@@ -72,9 +73,15 @@ class VerifyPrequantizedTest(unittest.TestCase):
         self.assertIn("quant_method=None", str(context.exception))
 
     def test_rejects_a_different_quantizer(self) -> None:
+        """An AWQ request must not be satisfied by a GPTQ checkpoint, or vice versa."""
         with self.assertRaises(RuntimeError) as context:
             verify_prequantized(Model({"quant_method": "gptq"}), "awq")
         self.assertIn("gptq", str(context.exception))
+        with self.assertRaises(RuntimeError):
+            verify_prequantized(Model({"quant_method": "awq"}), "gptq")
+
+    def test_accepts_a_matching_gptq_checkpoint(self) -> None:
+        verify_prequantized(Model({"quant_method": "gptq", "bits": 4}), "gptq")
 
 
 if __name__ == "__main__":
