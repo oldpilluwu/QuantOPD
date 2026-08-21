@@ -39,6 +39,13 @@ dev = [
   "ruff>=0.11,<1",
 ]
 
+[tool.uv]
+# The GPU server is x86_64 Linux, but the lock is often regenerated from a non-Linux dev machine.
+# Without this, uv is free to pick vLLM dependency versions that publish only aarch64 wheels
+# (xgrammar 0.2.4 did), which then fail to install on the server. Requiring the target environment
+# forces the resolution to versions that actually have x86_64 Linux wheels.
+required-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/opd"]
 

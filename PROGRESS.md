@@ -77,12 +77,18 @@ Two consequences worth remembering:
   optimises a `loss_top_k=1`-plus-tail approximation. Measuring both on the same tokens means the
   approximation gap is known before any result is attributed to teacher precision.
 
-### Dependency stack changed on Linux
+### Dependency stack changed
 
-Adding the `vllm` extra re-resolved the lock. On **Linux** the pinned stack is now
-**torch 2.10.0 / transformers 4.57.6**; Windows keeps torch 2.13.0 / transformers 5.15.0. vLLM
-0.19 constrains both, and uv's marker is `sys_platform != 'win32'`, so the GPU server gets the
-older versions **even when bootstrapping with `INSTALL_VLLM=0`**.
+Adding the `vllm` extra re-resolved the lock to **torch 2.10.0 / transformers 4.57.6** on every
+platform (vLLM 0.19 constrains both). This applies on the GPU server **even when bootstrapping
+with `INSTALL_VLLM=0`**.
+
+`[tool.uv] required-environments` pins the resolution to x86_64 Linux. Without it, locking from a
+non-Linux dev machine picked `xgrammar 0.2.4`'s aarch64-only wheel and `uv sync --extra vllm`
+failed on the server with "doesn't have a source distribution or wheel for the current platform".
+Adding the constraint also collapsed the resolution to a single fork, so the dev machine and the
+server now run the same versions instead of diverging (previously Windows resolved torch 2.13 /
+transformers 5.15).
 
 Consequence: the Phase 0 table above was measured on torch 2.13 / transformers 5.15 and may not
 reproduce byte-for-byte. Every report written by the new CLIs records its own package versions via
