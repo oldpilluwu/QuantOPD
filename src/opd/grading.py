@@ -13,6 +13,7 @@ Two things here are load-bearing and were established by probing Math-Verify 0.9
 
 from __future__ import annotations
 
+import math
 import re
 import sys
 from dataclasses import dataclass
@@ -21,11 +22,30 @@ from typing import Any
 from math_verify import parse, verify
 
 # A pathological prediction can send sympy into a very long simplification. On Linux this is
-# bounded; see the module docstring for why other platforms cannot be.
-PARSE_TIMEOUT_SECONDS: int | None = 5 if sys.platform == "linux" else None
-VERIFY_TIMEOUT_SECONDS: int | None = 5 if sys.platform == "linux" else None
+# bounded; see the module docstring for why other platforms cannot be. The default of 5s was too
+# short for olympiad-level answers (nested radicals, large products), and Math-Verify treats a
+# timeout as a *wrong answer* rather than an error, so a too-short budget silently depresses
+# accuracy on exactly the hardest problems.
+PARSE_TIMEOUT_SECONDS: int | None = 15 if sys.platform == "linux" else None
+VERIFY_TIMEOUT_SECONDS: int | None = 15 if sys.platform == "linux" else None
 
 GSM8K_ANSWER = re.compile(r"####\s*(.+?)\s*$", re.DOTALL)
+
+
+def wilson_interval(correct: int, total: int, z: float = 1.96) -> dict[str, float] | None:
+    """95% confidence interval for a proportion.
+
+    Wilson rather than normal-approximation: it stays inside [0, 1] and behaves sensibly at the
+    small sample sizes and low accuracies this project reads (n=100 at p=0.2 gives roughly +/-8
+    points, which is wide enough that headline differences are easy to over-read without it).
+    """
+    if total == 0:
+        return None
+    proportion = correct / total
+    denominator = 1 + z * z / total
+    centre = (proportion + z * z / (2 * total)) / denominator
+    margin = z * math.sqrt(proportion * (1 - proportion) / total + z * z / (4 * total * total)) / denominator
+    return {"lower": max(0.0, centre - margin), "upper": min(1.0, centre + margin)}
 
 
 @dataclass(frozen=True)
@@ -75,7 +95,17 @@ def grade(gold: str, prediction: str) -> Grade:
         return Grade(correct=False, gold_parseable=True, prediction_parseable=False)
 
     try:
-        correct = bool(verify(gold_parsed, prediction_parsed, timeout_seconds=VERIFY_TIMEOUT_SECONDS))
+        # raise_on_error=True matters: by default Math-Verify logs a timeout or an internal error
+        # and returns False, which is indistinguishable from a genuinely wrong answer. Raising
+        # makes those countable so a grading failure cannot masquerade as a model failure.
+        correct = bool(
+            verify(
+                gold_parsed,
+                prediction_parsed,
+                timeout_seconds=VERIFY_TIMEOUT_SECONDS,
+                raise_on_error=True,
+            )
+        )
     except Exception as error:  # noqa: BLE001 - sympy raises a wide variety of exceptions
         return Grade(
             correct=False,
@@ -97,6 +127,7 @@ def summarize(grades: list[Grade]) -> dict[str, Any]:
         "count": total,
         "correct": correct,
         "accuracy": correct / total,
+        "accuracy_ci95": wilson_interval(correct, total),
         # Separates "cannot do the maths" from "cannot follow the output format".
         "accuracy_on_parseable": (
             sum(1 for item in parseable if item.correct) / len(parseable) if parseable else None

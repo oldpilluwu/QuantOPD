@@ -282,10 +282,13 @@ def main() -> None:
             {
                 "report": str(report_path),
                 "accuracy": accuracy["accuracy"],
+                "accuracy_ci95": accuracy["accuracy_ci95"],
                 "accuracy_on_finished": accuracy["accuracy_on_finished"],
                 "truncation_rate": report["generation"]["truncation_rate"],
                 "mean_completion_tokens": report["generation"]["mean_completion_tokens"],
                 "parse_failure_rate": accuracy["prediction_parse_failure_rate"],
+                # Grading failures, not model failures: a timeout would otherwise count as wrong.
+                "verification_errors": accuracy["verification_errors"],
             },
             indent=2,
         )

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-from opd.grading import extract_gold, grade, gsm8k_gold, summarize
+from opd.grading import extract_gold, grade, gsm8k_gold, summarize, wilson_interval
 
 
 class Gsm8kGoldTest(unittest.TestCase):
@@ -59,6 +59,35 @@ class GradeTest(unittest.TestCase):
         self.assertTrue(result.gold_parseable)
 
 
+class WilsonIntervalTest(unittest.TestCase):
+    """Headline accuracies at n=100 carry roughly +/-8 points; the interval makes that visible."""
+
+    def test_interval_brackets_the_estimate(self) -> None:
+        interval = wilson_interval(27, 100)
+        self.assertLess(interval["lower"], 0.27)
+        self.assertGreater(interval["upper"], 0.27)
+
+    def test_interval_narrows_with_more_samples(self) -> None:
+        narrow = wilson_interval(270, 1000)
+        wide = wilson_interval(27, 100)
+        self.assertLess(narrow["upper"] - narrow["lower"], wide["upper"] - wide["lower"])
+
+    def test_interval_stays_inside_zero_one(self) -> None:
+        for correct, total in ((0, 10), (10, 10), (1, 3)):
+            interval = wilson_interval(correct, total)
+            self.assertGreaterEqual(interval["lower"], 0.0)
+            self.assertLessEqual(interval["upper"], 1.0)
+
+    def test_empty_sample_has_no_interval(self) -> None:
+        self.assertIsNone(wilson_interval(0, 0))
+
+    def test_observed_omnimath_conditions_are_not_separated(self) -> None:
+        """4B at 0.20 and 14B-NF4 at 0.27 over n=100 overlap, so the ordering is not real yet."""
+        four_b = wilson_interval(20, 100)
+        fourteen_b = wilson_interval(27, 100)
+        self.assertLess(fourteen_b["lower"], four_b["upper"])
+
+
 class SummarizeTest(unittest.TestCase):
     def test_accuracy_and_parse_rate_are_reported_separately(self) -> None:
         grades = [
@@ -73,6 +102,7 @@ class SummarizeTest(unittest.TestCase):
         # One of the two parseable predictions was right.
         self.assertAlmostEqual(summary["accuracy_on_parseable"], 1 / 2)
         self.assertAlmostEqual(summary["prediction_parse_failure_rate"], 1 / 3)
+        self.assertIsNotNone(summary["accuracy_ci95"])
 
     def test_empty_input_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

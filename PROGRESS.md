@@ -154,6 +154,45 @@ The pipeline works end to end and the `dtype=` kwarg is fine on transformers 4.5
 rate was 0.0 throughout. Truncated completions are near-uniformly wrong: 69 of the student's 70
 correct answers came from finished completions.
 
+## Omni-MATH results (100 items, 50 for the student; 2048-token budget)
+
+| Model | Precision | accuracy | 95% CI | on finished | truncation | backend |
+| --- | --- | ---: | :---: | ---: | ---: | --- |
+| Qwen3-1.7B (student) | BF16 | 0.17 | [0.08, 0.29] | 0.242 | 0.34 | vLLM |
+| Qwen3-4B | BF16 | 0.20 | [0.13, 0.29] | 0.339 | 0.44 | vLLM |
+| Qwen3-14B | BF16 | 0.23 | [0.16, 0.32] | 0.390 | 0.41 | vLLM |
+| Qwen3-14B | INT4 NF4 | 0.27 | [0.19, 0.36] | 0.403 | 0.38 | Transformers |
+| Qwen3-14B-AWQ | AWQ | 0.22 | [0.15, 0.31] | 0.328 | 0.39 | vLLM |
+
+**The difficulty gate passed:** the student at 0.17 is inside the measurable band, unlike MATH-500
+where it sat at 0.70 against a saturated ceiling. Omni-MATH is the right benchmark.
+
+**Nothing here is statistically separated.** Every Wilson interval overlaps every other. At n=100
+and p ~ 0.2 the interval is about +/-8 points, and the entire observed spread is 7 points.
+
+Two signals that we are reading noise rather than effects:
+
+- **INT4 (0.27) scoring above BF16 (0.23)** for the same 14B model. Quantization improving a
+  teacher is not a plausible effect at this size; it is sampling variance, and it is also the only
+  cross-backend comparison in the table.
+- **Truncation is 34-44%** with mean completions ~1500 against a 2048 cap. Roughly two fifths of
+  the score is measuring whether a model finishes in budget rather than whether it can solve the
+  problem.
+
+The one comparison deliberately built to be controlled does behave: **AWQ 0.22 vs BF16 0.23, both
+on vLLM, same model, same backend.** That suggests AWQ is close to lossless, though the intervals
+are far too wide to claim it.
+
+### Two measurement bugs found here
+
+- **Math-Verify treats a timeout as a wrong answer.** A "Timeout during comparison" appeared on the
+  14B BF16 run; `verify` logs a warning and returns `False`, so grading failures were silently
+  counted as model failures, biased toward the hardest problems. Now `raise_on_error=True` makes
+  them raise and be counted in `verification_errors`, and the timeout is 15s rather than 5s because
+  olympiad answers carry heavier expressions.
+- **Accuracy was reported without any interval**, which invites over-reading a 7-point spread.
+  Reports now carry a Wilson `accuracy_ci95`.
+
 ## Benchmark change after those results
 
 MATH-500 compresses the comparison: a 1.7B student at 0.70 leaves the teachers little room, and
