@@ -100,6 +100,15 @@ Greedy pass@1. BF16 models run through vLLM; quantized teachers run through Tran
 Reports accuracy, accuracy-on-finished, parse-failure rate, truncation rate, throughput, footprint,
 and peak VRAM. Use `--checkpoint` to evaluate a trained student and `--limit` to smoke test.
 
+The Transformers path is throughput-bound on **batch size**, not attention: bitsandbytes
+dequantizes weights on every forward pass. Qwen3-14B's KV cache is ~160 KiB/token, so at a
+2,048-token budget batch 32 needs ~19 GiB and batch 64 ~29 GiB including 9 GiB of INT4 weights.
+Push it with `--batch-size 64` on a 48 GB card. `--attn-implementation flash_attention_2` is
+available too, but requires the `flash-attn` package and helps far less than batching here.
+
+`--backend vllm` is rejected for quantized precisions: the engine loads unquantized weights, so it
+would report INT4 while measuring BF16.
+
 Accuracy is also sliced by whatever grouping columns a benchmark declares (`level` and `subject`
 for MATH-500, `difficulty` for Omni-MATH) into `accuracy_by_group`. That slice is free — the
 completions already exist — and it shows whether a headline score is ceilinged on easy items, and

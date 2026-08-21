@@ -49,6 +49,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark", required=True)
     parser.add_argument("--limit", type=int, help="Evaluate only the first N items (smoke testing).")
     parser.add_argument("--backend", choices=("auto", "vllm", "hf"), default="auto")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        help=(
+            "Transformers-path generation batch size. bitsandbytes dequantizes weights on every "
+            "forward pass, so throughput scales strongly with batch size until the KV cache fills "
+            "the card. Overrides [eval] batch_size."
+        ),
+    )
+    parser.add_argument(
+        "--attn-implementation",
+        help="Override [models] attention_implementation, e.g. flash_attention_2.",
+    )
     parser.add_argument("--tag", help="Label for this run, e.g. 'baseline' or 'opd-qwen3-14b-int4'.")
     parser.add_argument("--output", type=Path)
     return parser.parse_args()
@@ -69,6 +82,8 @@ def main() -> None:
     benchmark = config.evaluation_dataset(args.benchmark)
     settings = config.eval
 
+    attn_implementation = args.attn_implementation or config.models.attention_implementation
+    batch_size = args.batch_size or settings.batch_size
     model_id = args.model or config.models.student
     revision = resolve_model_revision(model_id, config.models.revision)
     # A local checkpoint carries the student's architecture but not a Hub revision; keep the base
@@ -84,6 +99,13 @@ def main() -> None:
     thinking_as_configured = all(is_non_thinking(prompt) is not config.models.enable_thinking for prompt in prompts)
     if not thinking_as_configured:
         raise RuntimeError("Rendered prompts do not match the configured thinking mode; refusing to evaluate.")
+
+    if backend == "vllm" and args.precision != "bf16":
+        raise SystemExit(
+            f"--backend vllm cannot serve {args.precision}: build_vllm_engine loads unquantized "
+            "weights, so the run would report quantized precision while measuring BF16. Use the "
+            "default 'auto' backend, which routes quantized models through Transformers."
+        )
 
     reset_vram_tracking()
     footprint_bytes: int | None = None
@@ -107,13 +129,13 @@ def main() -> None:
         elapsed = time.perf_counter() - started
     else:
         if args.precision == "bf16":
-            model = load_bf16_inference_model(weights_source, revision, config.models.attention_implementation)
+            model = load_bf16_inference_model(weights_source, revision, attn_implementation)
         else:
             model = load_teacher(
                 weights_source,
                 revision,
                 args.precision,
-                config.models.attention_implementation,
+                attn_implementation,
             )
         footprint_bytes = model_footprint_bytes(model)
         completions, elapsed = generate_hf(
@@ -121,7 +143,7 @@ def main() -> None:
             tokenizer,
             prompt_ids,
             max_new_tokens=settings.max_new_tokens,
-            batch_size=settings.batch_size,
+            batch_size=batch_size,
             greedy=True,
         )
 
@@ -200,7 +222,12 @@ def main() -> None:
             "footprint_bytes": footprint_bytes,
             "footprint_gib": None if footprint_bytes is None else footprint_bytes / (1024**3),
         },
-        "decoding": {"greedy": True, "max_new_tokens": settings.max_new_tokens},
+        "decoding": {
+            "greedy": True,
+            "max_new_tokens": settings.max_new_tokens,
+            "batch_size": batch_size if backend == "hf" else None,
+            "attn_implementation": attn_implementation if backend == "hf" else None,
+        },
         "accuracy": accuracy,
         "accuracy_by_group": breakdown,
         "generation": {

@@ -71,7 +71,11 @@ seed = 2026
 # Olympiad problems need room; 1024 truncated 16% of MATH-500 already. Applied to every
 # benchmark so a single number describes the eval regime.
 max_new_tokens = 2048
-batch_size = 16
+# bitsandbytes dequantizes weights on every forward pass, so the Transformers teacher path is
+# throughput-bound on batch size, not attention. Qwen3-14B KV cache is ~160 KiB/token, so at 2048
+# tokens: batch 32 ~ 19 GiB, batch 64 ~ 29 GiB including 9 GiB of INT4 weights. Override per run
+# with --batch-size; the ceiling depends on the model, not the config.
+batch_size = 32
 vllm_gpu_memory_utilization = 0.85
 # Must exceed prompt + max_new_tokens, or long prompts overflow the engine.
 vllm_max_model_length = 4096
