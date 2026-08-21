@@ -143,6 +143,18 @@ def main() -> None:
     truncated = sum(1 for completion in completions if completion.truncated)
     accuracy = summarize(grades)
 
+    # Math-Verify falls back to extracting a bare number when there is no \boxed{}, so a completion
+    # truncated mid-reasoning still "parses" -- it is graded against whatever figure it stopped
+    # near. Truncation therefore hides inside the parse-failure rate. Split it out explicitly so
+    # the budget's cost is visible rather than inferred.
+    finished = [g for g, c in zip(grades, completions, strict=True) if not c.truncated]
+    accuracy["accuracy_on_finished"] = (
+        sum(1 for g in finished if g.correct) / len(finished) if finished else None
+    )
+    accuracy["correct_while_truncated"] = sum(
+        1 for g, c in zip(grades, completions, strict=True) if c.truncated and g.correct
+    )
+
     tag = args.tag or ("checkpoint" if args.checkpoint else "base")
     output_dir = settings.output_dir / f"{condition_slug(model_id, args.precision)}-{slug(tag)}" / args.benchmark
     report = {
@@ -187,7 +199,9 @@ def main() -> None:
             {
                 "report": str(report_path),
                 "accuracy": accuracy["accuracy"],
+                "accuracy_on_finished": accuracy["accuracy_on_finished"],
                 "truncation_rate": report["generation"]["truncation_rate"],
+                "mean_completion_tokens": report["generation"]["mean_completion_tokens"],
                 "parse_failure_rate": accuracy["prediction_parse_failure_rate"],
             },
             indent=2,
