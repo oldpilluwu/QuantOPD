@@ -12,7 +12,8 @@ set -euo pipefail
 
 CONFIG="${CONFIG:-configs/experiment.toml}"
 CONDITIONS="${CONDITIONS:-Qwen/Qwen3-4B:bf16 Qwen/Qwen3-14B:int4}"
-BENCHMARKS="${BENCHMARKS:-math500 gsm8k}"
+# GSM8K is configured but excluded by default: a 1.7B student ceilings there.
+BENCHMARKS="${BENCHMARKS:-math500 omnimath}"
 LIMIT_ARGS="${LIMIT_ARGS:-}"
 
 run() {

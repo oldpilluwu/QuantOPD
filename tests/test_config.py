@@ -26,13 +26,23 @@ class ConfigTest(unittest.TestCase):
 
     def test_benchmarks_are_addressable_by_name(self) -> None:
         self.assertEqual(self.config.evaluation_dataset("math500").question_field, "problem")
-        self.assertEqual(self.config.evaluation_dataset("gsm8k").question_field, "question")
-        with self.assertRaises(ValueError):
+        self.assertEqual(self.config.evaluation_dataset("omnimath").question_field, "problem")
+        with self.assertRaises(ValueError) as context:
             self.config.evaluation_dataset("nonexistent")
+        self.assertIn("omnimath", str(context.exception))
 
-    def test_gsm8k_is_subsampled_but_math500_is_not(self) -> None:
+    def test_only_oversized_benchmarks_are_subsampled(self) -> None:
+        """MATH-500 is already the right size; Omni-MATH's 4428 rows are not affordable."""
         self.assertIsNone(self.config.evaluation_dataset("math500").subsample_size)
-        self.assertEqual(self.config.evaluation_dataset("gsm8k").subsample_size, 500)
+        self.assertEqual(self.config.evaluation_dataset("omnimath").subsample_size, 300)
+
+    def test_benchmarks_declare_grouping_columns(self) -> None:
+        """Difficulty slicing is what shows whether a headline score is ceilinged."""
+        self.assertIn("level", self.config.evaluation_dataset("math500").group_fields)
+        self.assertIn("difficulty", self.config.evaluation_dataset("omnimath").group_fields)
+
+    def test_eval_context_fits_prompt_plus_completion(self) -> None:
+        self.assertGreater(self.config.eval.vllm_max_model_length, self.config.eval.max_new_tokens)
 
     def test_objective_is_fully_on_policy_reverse_kl(self) -> None:
         self.assertEqual(self.config.opd.lmbda, 1.0)

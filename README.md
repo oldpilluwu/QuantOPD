@@ -28,7 +28,10 @@ reporting.
 - **Data:** prompt-only examples from `open-r1/OpenR1-Math-220k`. Supplied reasoning traces are
   never trained on; OPD supervises the student on states the student itself visits.
 - **Thinking mode: off.** See the note below — this is a deliberate deviation.
-- **Benchmarks:** MATH-500 (all 500) and GSM8K (a fixed seeded 500-item subsample), greedy pass@1.
+- **Benchmarks:** MATH-500 (all 500) and Omni-MATH (a fixed seeded 300-item subsample),
+  greedy pass@1 at 2,048 tokens. Omni-MATH is olympiad-level: a 1.7B student already scores ~0.70
+  on MATH-500, which compresses the student-teacher gap. GSM8K stays configured but is excluded
+  from the pilot -- a model this size ceilings there, so it costs INT4 teacher time for no signal.
 - **Runtime:** one Linux NVIDIA GPU with BF16 support. Developed against an A6000 48 GB.
 
 All scientific settings live in `configs/experiment.toml`.
@@ -37,9 +40,12 @@ All scientific settings live in `configs/experiment.toml`.
 
 Qwen3 defaults to thinking mode. An earlier run with thinking on and a 2,048-token budget produced
 973/1000 completions that hit the cap without emitting an answer — the accuracy measured was
-truncation, not reasoning. This pilot runs `enable_thinking=False` with 1,024-token completions so
-answers terminate, eval takes minutes rather than hours, and OPD rollouts are affordable on one
-GPU.
+truncation, not reasoning. This pilot runs `enable_thinking=False` so answers terminate, eval
+takes minutes rather than hours, and OPD rollouts stay affordable on one GPU.
+
+Budgets differ by stage on purpose: benchmarks get 2,048 tokens (olympiad problems need room),
+while OPD rollouts stay at 1,024 to bound training cost. Evaluating with more headroom than
+training does not bias anything, because baseline and post-OPD students are measured identically.
 
 Two implementation notes follow from that:
 
@@ -91,9 +97,13 @@ uv run opd-eval --model Qwen/Qwen3-14B --precision int4 --benchmark math500 --ta
 
 Greedy pass@1. BF16 models run through vLLM; quantized teachers run through Transformers with the
 **same bitsandbytes loader OPD uses**, so the benchmarked teacher is the teacher that supervises.
-Reports accuracy, accuracy-on-parseable, parse-failure rate, truncation rate, throughput,
-footprint, and peak VRAM. Use `--checkpoint` to evaluate a trained student and `--limit` to smoke
-test.
+Reports accuracy, accuracy-on-finished, parse-failure rate, truncation rate, throughput, footprint,
+and peak VRAM. Use `--checkpoint` to evaluate a trained student and `--limit` to smoke test.
+
+Accuracy is also sliced by whatever grouping columns a benchmark declares (`level` and `subject`
+for MATH-500, `difficulty` for Omni-MATH) into `accuracy_by_group`. That slice is free — the
+completions already exist — and it shows whether a headline score is ceilinged on easy items, and
+where the student-teacher gap actually lives.
 
 ```bash
 uv run opd-trajectories --tag baseline
@@ -152,8 +162,10 @@ uv run ruff check .
 
 Before trusting any number:
 
-- truncation rate on MATH-500 should be low — a high rate means the budget is being measured, not
-  the model;
+- truncation rate should be low; a high rate means the budget is being measured, not the model.
+  Compare `accuracy` against `accuracy_on_finished`, because Math-Verify extracts a bare number
+  when there is no `\boxed{}`, so a truncated completion still "parses" and truncation hides
+  inside the parse-failure rate;
 - `KL(student‖teacher)` must be finite and positive at baseline, and should fall over training
   (`opd-score` fails loudly if it is not);
 - measured teacher footprints should match Phase 0: 4B BF16 ≈ 7.49 GiB, 14B INT4 ≈ 9.05 GiB.

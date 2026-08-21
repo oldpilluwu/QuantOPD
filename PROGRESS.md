@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 ## Status
 
@@ -8,10 +8,14 @@ Last updated: 2026-08-21
 two-step OPD smoke training on an NVIDIA RTX A6000 (49,140 MiB, driver 610.43.02) at commit
 `d91142a`.
 
-**Jump-ahead pilot: implemented, not yet executed on GPU.** A single vertical slice covering
-benchmarking, trajectory scoring, OPD, and re-benchmarking now exists on branch `jump-ahead`. It
-passes 59 CPU tests and `ruff`, and every CLI imports and parses arguments, but **no GPU numbers
-have been produced yet.** Nothing below the Phase 0 table is a measured result.
+**Jump-ahead pilot: implemented; benchmarking verified on GPU, nothing else run yet.** A vertical
+slice covering benchmarking, trajectory scoring, OPD, and re-benchmarking exists on branch
+`jump-ahead` (61 CPU tests, `ruff` clean). Benchmark evaluation has run on the A6000 for the
+student and the 4B BF16 teacher; see "First GPU results" below.
+
+**Not yet run on GPU:** the 14B INT4 teacher, Omni-MATH, trajectory generation, scoring, and OPD
+training itself. The only measured numbers in this document are the Phase 0 table and the First
+GPU results table.
 
 An earlier `phase-1` branch and a downloaded trajectory bundle exist but were deliberately
 abandoned in favour of this simpler implementation. They are untouched, not merged, and not used.
@@ -46,8 +50,9 @@ Phase 0 fixed `enable_thinking=True`. **The pilot sets it to `False`.**
 
 Reason: a trajectory run under the old branch produced 973/1000 completions that hit the
 2,048-token cap without emitting an answer. At that budget the benchmark measures truncation, not
-reasoning. Non-thinking with a 1,024-token budget makes answers terminate, cuts eval to minutes,
-and makes OPD rollouts affordable on a single A6000.
+reasoning. Non-thinking makes answers terminate, cuts eval to minutes, and keeps OPD rollouts
+affordable on a single A6000. Confirmed in practice: MATH-500 truncation fell to 16% at a
+1,024-token budget, versus 97% with thinking on.
 
 Cost of the deviation: results are not comparable to Qwen3's published thinking-mode numbers, and
 the thinking-mode question is deferred rather than answered.
@@ -70,8 +75,8 @@ Two consequences worth remembering:
   `parse("x+1")` and `parse("\\text{even}")` return empty — bare MATH-500 golds would have been
   silently counted unparseable. Wrapping also routes gold and prediction through one extraction
   path.
-- **GSM8K is subsampled to a fixed seeded 500 items**, frozen in the manifest, to bound teacher
-  cost while keeping every model on identical items.
+- **Oversized benchmarks are subsampled to a fixed seeded index set**, frozen in the manifest, to
+  bound teacher cost while keeping every model on identical items.
 - **Diagnostics use the calibration subset**, disjoint from OPD training prompts by construction.
 - **Exact and approximate KL are both computed.** The diagnostics are full-vocabulary; TRL
   optimises a `loss_top_k=1`-plus-tail approximation. Measuring both on the same tokens means the
@@ -115,6 +120,47 @@ the smoke test. New modules: `prompts`, `grading`, `generate`, `runtime`, `metri
 The config loader now refuses to load a config whose `[trajectories]` sampling settings disagree
 with `[opd]`, because the scoring diagnostics only mean something if the trajectories were sampled
 the way OPD samples.
+
+## First GPU results (MATH-500, first 100 items, non-thinking, 1024-token budget)
+
+| Model | Precision | accuracy | on finished | truncation | mean tokens |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Qwen3-1.7B (student) | BF16 | 0.70 | 0.821 | 0.16 | 532.4 |
+| Qwen3-4B (teacher) | BF16 | 0.81 | 0.940 | 0.16 | 531.8 |
+
+The pipeline works end to end and the `dtype=` kwarg is fine on transformers 4.57.6. Parse-failure
+rate was 0.0 for both. Truncated completions are near-uniformly wrong: 69 of the student's 70
+correct answers came from finished completions.
+
+Caveats: n=100 gives roughly a +/-9 point interval, so the 11-point gap is only just outside noise.
+Identical 0.16 truncation and near-identical mean length for both models is unexplained and worth
+one overlap check on the per-item files; accuracy differs enough that the models are clearly
+distinct, so it is most likely difficulty-driven.
+
+## Benchmark change after those results
+
+MATH-500 compresses the comparison: a 1.7B student at 0.70 leaves the teachers little room, and
+GSM8K would be worse (a model this size ceilings there at ~85-90%) while still costing INT4 teacher
+generation time.
+
+- **GSM8K is no longer run by the pilot.** It stays in the config, one flag away
+  (`BENCHMARKS="math500 omnimath gsm8k"`).
+- **Omni-MATH replaces it** as the discriminating benchmark: olympiad-level, in-domain with the
+  OpenR1-Math training prompts, subsampled to a fixed seeded 300 items.
+- **Eval budget raised to 2,048 tokens** for every benchmark, with the vLLM context raised to 4,096
+  so prompt plus completion cannot overflow. **This invalidates the MATH-500 numbers above**; they
+  must be regenerated before being compared with anything.
+- OPD rollouts stay at 1,024 to bound training cost. Evaluating with more headroom than training
+  does not bias the comparison, since baseline and post-OPD students are measured identically.
+
+Omni-MATH was chosen over OlympiadBench, which was the original intent. OlympiadBench stores
+`final_answer` as a list with multi-answer rows and units, needing grading logic MATH-500 does not
+use, and its difficulty is the constant "Competition". Omni-MATH has a plain string `answer` (so it
+reuses the existing code path unchanged) and a numeric 1-10 `difficulty`, which locates the
+measurable band if the student floors out.
+
+Accuracy is now sliced by declared `group_fields` (`level`/`subject` for MATH-500, `difficulty` for
+Omni-MATH). The slice is free and shows whether a headline score is ceilinged.
 
 ## Next step
 

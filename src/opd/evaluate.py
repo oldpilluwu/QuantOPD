@@ -44,7 +44,9 @@ def parse_args() -> argparse.Namespace:
         help="Local trained-student directory to evaluate instead of the Hub weights.",
     )
     parser.add_argument("--precision", choices=("bf16", "int8", "int4"), default="bf16")
-    parser.add_argument("--benchmark", required=True, choices=("math500", "gsm8k"))
+    # Choices are validated against the config rather than hardcoded, so adding a benchmark is a
+    # config change alone. config.evaluation_dataset() raises listing the configured names.
+    parser.add_argument("--benchmark", required=True)
     parser.add_argument("--limit", type=int, help="Evaluate only the first N items (smoke testing).")
     parser.add_argument("--backend", choices=("auto", "vllm", "hf"), default="auto")
     parser.add_argument("--tag", help="Label for this run, e.g. 'baseline' or 'opd-qwen3-14b-int4'.")

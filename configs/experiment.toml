@@ -30,6 +30,24 @@ answer_field = "answer"
 # ceilinged on easy items is visible without regenerating anything.
 group_fields = ["level", "subject"]
 
+# Olympiad-level competition math: the discriminating benchmark. MATH-500 compresses the
+# student-teacher gap because a 1.7B model already scores ~0.70 there.
+[[evaluation.datasets]]
+name = "omnimath"
+dataset = "KbsdJames/Omni-MATH"
+split = "test"
+revision = "main"
+question_field = "problem"
+answer_field = "answer"
+# 4,428 rows is far more than the slow bitsandbytes teacher path can afford.
+subsample_size = 300
+# Numeric 1-10 difficulty. If the student floors out, this locates the measurable band without
+# adopting yet another dataset.
+group_fields = ["difficulty"]
+
+# Retained but not run by the pilot: a 1.7B model sits at ~85-90% here non-thinking, so every
+# condition ceilings and the INT4 teacher generation cost buys no discriminating power.
+# Re-enable with: BENCHMARKS="math500 omnimath gsm8k" bash scripts/run_pilot.sh
 [[evaluation.datasets]]
 name = "gsm8k"
 dataset = "openai/gsm8k"
@@ -50,10 +68,13 @@ output_dir = "artifacts/diagnostics"
 
 [eval]
 seed = 2026
-max_new_tokens = 1024
+# Olympiad problems need room; 1024 truncated 16% of MATH-500 already. Applied to every
+# benchmark so a single number describes the eval regime.
+max_new_tokens = 2048
 batch_size = 16
 vllm_gpu_memory_utilization = 0.85
-vllm_max_model_length = 2048
+# Must exceed prompt + max_new_tokens, or long prompts overflow the engine.
+vllm_max_model_length = 4096
 output_dir = "artifacts/eval"
 
 [trajectories]
