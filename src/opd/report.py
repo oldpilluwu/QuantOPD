@@ -117,6 +117,28 @@ def collect_training(config: ExperimentConfig) -> list[dict[str, Any]]:
     return rows
 
 
+def find_item_count_mismatches(evaluations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flag benchmarks whose conditions were scored on different numbers of items.
+
+    `--limit N` takes the *first* N frozen indices, so a run at 100 and a run at 300 cover
+    different problems. Comparing them looks like a result and is an artifact -- the kind of
+    mistake that reads as "the 1.7B student beat the 14B teacher".
+    """
+    by_benchmark: dict[str, dict[int, list[str]]] = {}
+    for row in evaluations:
+        by_benchmark.setdefault(row["benchmark"], {}).setdefault(row["items"], []).append(
+            f"{row['model']}:{row['precision']}:{row['tag']}"
+        )
+    return [
+        {
+            "benchmark": benchmark,
+            "item_counts": {count: sorted(names) for count, names in sorted(counts.items())},
+        }
+        for benchmark, counts in sorted(by_benchmark.items())
+        if len(counts) > 1
+    ]
+
+
 def build_headline(evaluations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One row per (condition, benchmark): the table the pilot exists to produce."""
     headline: dict[tuple[str, str], dict[str, Any]] = {}
@@ -165,8 +187,10 @@ def main() -> None:
     scoring = collect_scoring(config)
     training = collect_training(config)
 
+    mismatches = find_item_count_mismatches(evaluations)
     summary = {
         "schema_version": 1,
+        "comparability_warnings": mismatches,
         "headline": build_headline(evaluations),
         "evaluations": evaluations,
         "scoring": scoring,
@@ -192,6 +216,16 @@ def main() -> None:
     for row in summary["headline"]:
         accuracy = row["accuracy"]
         print(f"  {row['condition']:<28} {row['benchmark']:<8} accuracy={accuracy:.4f}")
+
+    for mismatch in mismatches:
+        print("")
+        print(
+            f"WARNING: {mismatch['benchmark']} conditions were scored on different item counts; "
+            "these accuracies are NOT comparable. --limit N takes the first N frozen indices, so "
+            "different N means different problems. Re-run the short ones at the full size."
+        )
+        for count, names in mismatch["item_counts"].items():
+            print(f"    {count:>5} items: {', '.join(names)}")
 
 
 if __name__ == "__main__":

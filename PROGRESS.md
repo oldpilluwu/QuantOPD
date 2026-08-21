@@ -200,6 +200,27 @@ are far too wide to claim it.
 - **Accuracy was reported without any interval**, which invites over-reading a 7-point spread.
   Reports now carry a Wilson `accuracy_ci95`.
 
+## Omni-MATH at full size (student only so far)
+
+| Model | Precision | n | accuracy | 95% CI | on finished | truncation | verification errors |
+| --- | --- | ---: | ---: | :---: | ---: | ---: | ---: |
+| Qwen3-1.7B (student) | BF16 | 300 | 0.253 | [0.207, 0.305] | 0.354 | 0.31 | 1 |
+
+The student moved 0.17 (n=50) -> 0.253 (n=300), inside the earlier [0.08, 0.29] interval. That is
+how much the first N items differ from the whole subsample, and it is the reason the n=50 and n=100
+numbers above cannot be read as an ordering.
+
+`verification_errors` is 1 in 300, so Math-Verify timeouts are not distorting the score.
+
+**The teacher numbers in the table above are NOT comparable to this one:** they ran with
+`--limit 100`, which takes the *first* 100 frozen indices, while the student ran all 300. Read
+naively it says a 1.7B student beats both 14B teachers. It does not; the item sets differ. Every
+condition must be re-run at the full 300 before anything is compared.
+
+`opd-report` now detects this: `find_item_count_mismatches` groups evaluations by benchmark and
+emits a `comparability_warnings` block plus a loud terminal warning when conditions within one
+benchmark were scored on different item counts.
+
 ## Benchmark change after those results
 
 MATH-500 compresses the comparison: a 1.7B student at 0.70 leaves the teachers little room, and
