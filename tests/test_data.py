@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from opd_phase0.data import make_split_indices, select_prompt_field
+from opd.data import make_split_indices, select_prompt_field
 
 
 class DataTests(TestCase):

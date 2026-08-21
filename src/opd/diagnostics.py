@@ -12,16 +12,17 @@ import torch
 import torch.nn.functional as F
 
 from .common import atomic_write_json, slug
-from .config import load_config
+from .config import DEFAULT_CONFIG, load_config
 from .hub import resolve_model_revision
 from .models import load_bf16_student, load_teacher, load_tokenizer, model_footprint_bytes
+from .prompts import is_non_thinking
 
 GIB = 1024**3
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run Phase 0 model, tokenizer, gradient, and latency checks.")
-    parser.add_argument("--config", default="configs/phase0.toml")
+    parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--teacher", required=True)
     parser.add_argument("--precision", choices=("bf16", "int8", "int4"), required=True)
     parser.add_argument("--output", type=Path)
@@ -56,19 +57,21 @@ def main() -> None:
     if args.teacher not in config.models.teachers:
         raise ValueError(f"Teacher {args.teacher!r} is not listed in {args.config}")
 
-    torch.manual_seed(config.training.seed)
-    torch.cuda.manual_seed_all(config.training.seed)
+    torch.manual_seed(config.opd.seed)
+    torch.cuda.manual_seed_all(config.opd.seed)
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
 
     student_revision = resolve_model_revision(config.models.student, config.models.revision)
     teacher_revision = resolve_model_revision(args.teacher, config.models.revision)
-    student_tokenizer = load_tokenizer(config.models.student, student_revision)
-    teacher_tokenizer = load_tokenizer(args.teacher, teacher_revision)
+    enable_thinking = config.models.enable_thinking
+    student_tokenizer = load_tokenizer(config.models.student, student_revision, enable_thinking)
+    teacher_tokenizer = load_tokenizer(args.teacher, teacher_revision, enable_thinking)
 
-    default_text, default_ids = _render(student_tokenizer, config.diagnostics.prompt, explicit_thinking=None)
-    thinking_text, thinking_ids = _render(student_tokenizer, config.diagnostics.prompt, explicit_thinking=True)
-    teacher_text, teacher_ids = _render(teacher_tokenizer, config.diagnostics.prompt, explicit_thinking=True)
+    # The shimmed tokenizers must render the *configured* mode when called the way TRL calls them,
+    # i.e. with no explicit enable_thinking argument.
+    student_text, student_ids = _render(student_tokenizer, config.diagnostics.prompt, explicit_thinking=None)
+    teacher_text, teacher_ids = _render(teacher_tokenizer, config.diagnostics.prompt, explicit_thinking=None)
 
     allocated_before_models = torch.cuda.memory_allocated()
     teacher = load_teacher(
@@ -90,7 +93,7 @@ def main() -> None:
     teacher_device = next(teacher.parameters()).device
     if student_device != teacher_device:
         raise RuntimeError(f"Student is on {student_device}, but teacher is on {teacher_device}")
-    input_ids = thinking_ids.to(student_device)
+    input_ids = student_ids.to(student_device)
 
     torch.cuda.reset_peak_memory_stats()
     latency_seconds = _timed_teacher_forward(
@@ -128,9 +131,9 @@ def main() -> None:
     deterministic_max_abs_diff = (teacher_logits_first - teacher_logits_second).abs().max().item()
 
     checks = {
-        "thinking_mode_is_default": default_text == thinking_text and torch.equal(default_ids, thinking_ids),
-        "teacher_student_template_text_matches": thinking_text == teacher_text,
-        "teacher_student_token_ids_match": torch.equal(thinking_ids, teacher_ids),
+        "configured_thinking_mode_applied": is_non_thinking(student_text) is not enable_thinking,
+        "teacher_student_template_text_matches": student_text == teacher_text,
+        "teacher_student_token_ids_match": torch.equal(student_ids, teacher_ids),
         "teacher_student_vocab_matches": student_tokenizer.get_vocab() == teacher_tokenizer.get_vocab(),
         "logits_shapes_match": tuple(student_logits.shape) == tuple(teacher_logits_first.shape),
         "teacher_probability_normalized": bool(

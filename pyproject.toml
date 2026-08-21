@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "quantized-teacher-opd"
 version = "0.1.0"
-description = "Phase 0 pipeline for quantized-teacher on-policy distillation experiments"
+description = "Quantized-teacher on-policy distillation experiments"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -13,17 +13,25 @@ dependencies = [
   "bitsandbytes>=0.48,<1",
   "datasets>=4.7,<5",
   "huggingface-hub>=0.35,<2",
+  "math-verify[antlr4_13_2]>=0.9,<1",
   "safetensors>=0.5,<1",
   "torch>=2.7,<3",
   "transformers>=4.56.2,<6",
   "trl==1.6.0",
 ]
 
+[project.optional-dependencies]
+vllm = ["vllm>=0.12,<=0.19; sys_platform == 'linux'"]
+
 [project.scripts]
-opd-check-env = "opd_phase0.env_check:main"
-opd-prepare-data = "opd_phase0.prepare_data:main"
-opd-diagnose = "opd_phase0.diagnostics:main"
-opd-train-smoke = "opd_phase0.train_smoke:main"
+opd-check-env = "opd.env_check:main"
+opd-prepare-data = "opd.prepare_data:main"
+opd-diagnose = "opd.diagnostics:main"
+opd-eval = "opd.evaluate:main"
+opd-trajectories = "opd.trajectories:main"
+opd-score = "opd.score:main"
+opd-train = "opd.train_opd:main"
+opd-report = "opd.report:main"
 
 [dependency-groups]
 dev = [
@@ -32,7 +40,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/opd_phase0"]
+packages = ["src/opd"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -6,6 +6,13 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-uv sync --group dev
+# vLLM is the rollout backend for benchmarks, trajectories, and colocated OPD generation.
+# INSTALL_VLLM=0 gives a CPU-testable environment without it.
+if [[ "${INSTALL_VLLM:-1}" == "1" ]]; then
+  uv sync --group dev --extra vllm
+else
+  uv sync --group dev
+fi
+
 uv run opd-check-env
 

@@ -1,0 +1,105 @@
+[models]
+student = "Qwen/Qwen3-1.7B"
+teachers = ["Qwen/Qwen3-4B", "Qwen/Qwen3-14B"]
+precisions = ["bf16", "int8", "int4"]
+revision = "main"
+attention_implementation = "sdpa"
+# Qwen3 defaults to thinking mode. The pilot runs non-thinking: with thinking on and a 2k budget,
+# 973/1000 completions hit the cap without emitting an answer, so accuracy measures truncation.
+enable_thinking = false
+
+[data]
+dataset = "open-r1/OpenR1-Math-220k"
+split = "train"
+revision = "main"
+prompt_fields = ["problem", "question"]
+seed = 2026
+calibration_size = 1000
+training_size = 10000
+smoke_size = 16
+output_dir = "data"
+
+[[evaluation.datasets]]
+name = "math500"
+dataset = "HuggingFaceH4/MATH-500"
+split = "test"
+revision = "main"
+question_field = "problem"
+answer_field = "answer"
+
+[[evaluation.datasets]]
+name = "gsm8k"
+dataset = "openai/gsm8k"
+config = "main"
+split = "test"
+revision = "main"
+question_field = "question"
+answer_field = "answer"
+# GSM8K test has 1319 rows. A fixed seeded subsample keeps the bitsandbytes teacher cost bounded
+# while every model still sees identical items.
+subsample_size = 500
+
+[diagnostics]
+prompt = "What is 17 multiplied by 23? Show your reasoning and give the final answer."
+warmup_steps = 1
+timed_steps = 3
+output_dir = "artifacts/diagnostics"
+
+[eval]
+seed = 2026
+max_new_tokens = 1024
+batch_size = 16
+vllm_gpu_memory_utilization = 0.85
+vllm_max_model_length = 2048
+output_dir = "artifacts/eval"
+
+[trajectories]
+seed = 2026
+prompt_count = 500
+source_subset = "calibration"
+# Must match [opd] rollout settings: these trajectories stand in for what OPD will actually sample.
+temperature = 1.0
+top_p = 0.95
+top_k = 0
+max_new_tokens = 1024
+vllm_gpu_memory_utilization = 0.85
+vllm_max_model_length = 2048
+output_dir = "artifacts/trajectories"
+
+[scoring]
+top_ks = [1, 5, 10, 50]
+position_chunk_size = 64
+position_profile_bins = 10
+bootstrap_samples = 1000
+bootstrap_seed = 2026
+output_dir = "artifacts/scoring"
+
+[opd]
+seed = 2026
+source_subset = "training"
+max_steps = 1000
+max_length = 1536
+max_completion_length = 1024
+max_prompt_length = 512
+per_device_train_batch_size = 2
+gradient_accumulation_steps = 4
+learning_rate = 1e-6
+optimizer = "adamw_torch_fused"
+# Objective carried forward from the Phase 0 smoke run: fully on-policy reverse KL.
+lmbda = 1.0
+beta = 1.0
+loss_top_k = 1
+loss_add_tail = true
+reverse_kl_top_1_mode = "sampled"
+temperature = 1.0
+top_p = 0.95
+top_k = 0
+use_vllm = true
+vllm_gpu_memory_utilization = 0.22
+save_steps = 250
+save_total_limit = 2
+logging_steps = 10
+output_dir = "outputs/opd"
+
+[report]
+output_dir = "artifacts/summary"

@@ -9,11 +9,22 @@ import sys
 
 import torch
 
-PACKAGES = ("torch", "transformers", "trl", "accelerate", "datasets", "bitsandbytes", "huggingface-hub")
+PACKAGES = (
+    "torch",
+    "transformers",
+    "trl",
+    "accelerate",
+    "datasets",
+    "bitsandbytes",
+    "huggingface-hub",
+    "math-verify",
+)
+# vLLM is optional: it is Linux-only and not needed for CPU-side checks.
+OPTIONAL_PACKAGES = ("vllm",)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate the Linux/CUDA environment used by Phase 0.")
+    parser = argparse.ArgumentParser(description="Validate the Linux/CUDA environment used for GPU runs.")
     parser.add_argument("--allow-no-cuda", action="store_true", help="Report rather than fail when CUDA is absent.")
     return parser.parse_args()
 
@@ -21,6 +32,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     versions = {package: importlib.metadata.version(package) for package in PACKAGES}
+    for package in OPTIONAL_PACKAGES:
+        try:
+            versions[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            versions[package] = None
     import_checks = {}
     for module_name in ("bitsandbytes", "trl.experimental.distillation"):
         try:
@@ -55,7 +71,7 @@ def main() -> None:
 
     failures = []
     if platform.system() != "Linux":
-        failures.append("Phase 0 model runs are supported on Linux only")
+        failures.append("GPU runs are supported on Linux only")
     if not cuda_available and not args.allow_no_cuda:
         failures.append("CUDA is not available")
     if cuda_available and not torch.cuda.is_bf16_supported():

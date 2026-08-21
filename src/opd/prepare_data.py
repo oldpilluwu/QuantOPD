@@ -3,12 +3,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 from typing import Any
 
 from datasets import Dataset, load_dataset
 
 from .common import atomic_write_json, write_jsonl
-from .config import load_config
+from .config import DEFAULT_CONFIG, load_config
 from .data import make_split_indices, select_prompt_field
 from .hub import resolve_dataset_revision
 
@@ -41,7 +42,7 @@ def _prompt_hash(rows: list[dict[str, Any]]) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create immutable Phase 0 prompt subsets and index manifests.")
-    parser.add_argument("--config", default="configs/phase0.toml")
+    parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--force", action="store_true", help="Replace an existing generated manifest.")
     return parser.parse_args()
 
@@ -92,13 +93,23 @@ def main() -> None:
         if evaluation_config.config:
             load_kwargs["name"] = evaluation_config.config
         evaluation_dataset = load_dataset(**load_kwargs)
+        indices = list(range(len(evaluation_dataset)))
+        # A benchmark larger than the budget is subsampled once, here, and the indices are frozen
+        # in the manifest. Every model must be scored on identical items for the comparison to
+        # mean anything, so this must never be re-drawn at evaluation time.
+        if evaluation_config.subsample_size is not None and evaluation_config.subsample_size < len(indices):
+            sampler = random.Random(f"{config.data.seed}:{evaluation_config.name}")
+            indices = sorted(sampler.sample(indices, evaluation_config.subsample_size))
         evaluation[evaluation_config.name] = {
             "dataset": evaluation_config.dataset,
             "config": evaluation_config.config,
             "split": evaluation_config.split,
             "revision": revision,
             "fingerprint": evaluation_dataset._fingerprint,
-            "indices": list(range(len(evaluation_dataset))),
+            "question_field": evaluation_config.question_field,
+            "answer_field": evaluation_config.answer_field,
+            "row_count": len(evaluation_dataset),
+            "indices": indices,
         }
 
     manifest = {
