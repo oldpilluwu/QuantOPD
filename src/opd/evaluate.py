@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import atomic_write_json, slug
-from .config import DEFAULT_CONFIG, VALID_PRECISIONS, load_config
+from .config import DEFAULT_CONFIG, PREQUANTIZED_PRECISIONS, VALID_PRECISIONS, load_config
 from .generate import Completion, build_vllm_engine, generate_hf, generate_vllm
 from .grading import extract_gold, grade, summarize
 from .hub import resolve_model_revision
@@ -72,8 +72,9 @@ def parse_args() -> argparse.Namespace:
 def choose_backend(requested: str, precision: str) -> str:
     if requested != "auto":
         return requested
-    # Quantized weights stay on the Transformers path so evaluation and OPD share one teacher
-    # implementation. vLLM would re-quantize with its own kernels.
+    # Quantized weights default to the Transformers path so evaluation and OPD share one teacher
+    # implementation. A pre-quantized checkpoint *can* be served by vLLM (see the guard below), but
+    # only on request, because it changes the kernels relative to the OPD teacher.
     return "vllm" if precision == "bf16" else "hf"
 
 
@@ -102,11 +103,24 @@ def main() -> None:
     if not thinking_as_configured:
         raise RuntimeError("Rendered prompts do not match the configured thinking mode; refusing to evaluate.")
 
-    if backend == "vllm" and args.precision != "bf16":
+    # bitsandbytes quantization is a load-time flag that build_vllm_engine does not pass, so vLLM
+    # would serve BF16 weights under an INT4/INT8 label. A pre-quantized checkpoint is different:
+    # it carries quantization_config in its own config.json and vLLM detects the format from there,
+    # so serving it is correct -- just with different kernels than the Transformers teacher.
+    if backend == "vllm" and args.precision not in PREQUANTIZED_PRECISIONS and args.precision != "bf16":
         raise SystemExit(
-            f"--backend vllm cannot serve {args.precision}: build_vllm_engine loads unquantized "
-            "weights, so the run would report quantized precision while measuring BF16. Use the "
-            "default 'auto' backend, which routes quantized models through Transformers."
+            f"--backend vllm cannot serve {args.precision}: build_vllm_engine does not pass a "
+            "bitsandbytes quantization config, so the run would report quantized precision while "
+            "measuring BF16. Use the default 'auto' backend, which routes it through Transformers."
+        )
+    if backend == "vllm" and args.precision in PREQUANTIZED_PRECISIONS:
+        print(
+            f"[eval] WARNING: serving {args.precision} through vLLM. vLLM detects the format from "
+            "the checkpoint, so the weights are correct, but its kernels differ from the "
+            "Transformers teacher used during OPD. Do not compare this number directly against a "
+            "Transformers-path teacher; the backend is recorded in the report.",
+            file=sys.stderr,
+            flush=True,
         )
 
     reset_vram_tracking()

@@ -114,8 +114,16 @@ match for bitsandbytes NF4's 9.05 GiB, so quantizer-vs-quantizer is controlled f
 separate model id, not a flag on the base model, and the loader honours the checkpoint's own
 float16 compute dtype because AWQ GEMM kernels are built for it. The run aborts if the checkpoint's
 `quant_method` does not match the requested precision, so a base model can never be measured as
-AWQ. Loading needs `autoawq`, which is archived upstream with kernels last built against torch 2.5;
-if it fails on this stack, serving the model through vLLM is the fallback.
+AWQ. By default AWQ runs on the **Transformers** path like every other quantized teacher, which needs
+`autoawq` -- archived upstream, kernels last built against torch 2.5. If that fails, add
+`--backend vllm`: vLLM reads `quantization_config` from the checkpoint and detects AWQ itself, so
+no `autoawq` is required and the weights are genuinely AWQ, not BF16. The cost is different kernels
+(vLLM's Marlin vs AutoAWQ's GEMM) from the Transformers teacher OPD trains against, so a
+vLLM-served number is not directly comparable to a Transformers-path teacher. The backend is
+recorded in every report, and the command warns when this applies.
+
+That escape hatch does **not** extend to bitsandbytes: INT4/INT8 are load-time flags rather than
+properties of the checkpoint, so vLLM would serve BF16 under a quantized label. Those stay refused.
 
 Accuracy is also sliced by whatever grouping columns a benchmark declares (`level` and `subject`
 for MATH-500, `difficulty` for Omni-MATH) into `accuracy_by_group`. That slice is free — the
