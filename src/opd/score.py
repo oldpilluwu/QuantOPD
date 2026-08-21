@@ -17,7 +17,7 @@ from typing import Any
 import torch
 
 from .common import atomic_write_json, resolve_project_path
-from .config import DEFAULT_CONFIG, load_config
+from .config import DEFAULT_CONFIG, VALID_PRECISIONS, load_config
 from .hub import resolve_model_revision
 from .metrics import (
     aggregate,
@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Score student trajectories against one teacher condition.")
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--teacher", required=True)
-    parser.add_argument("--precision", choices=("bf16", "int8", "int4"), required=True)
+    parser.add_argument("--precision", choices=sorted(VALID_PRECISIONS), required=True)
     parser.add_argument("--trajectories", default="artifacts/trajectories/baseline/manifest.json")
     parser.add_argument("--student-checkpoint", type=Path, help="Score a trained student's distributions.")
     parser.add_argument("--limit", type=int, help="Score only the first N trajectories (smoke testing).")

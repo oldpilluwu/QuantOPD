@@ -6,7 +6,11 @@ from pathlib import Path
 
 from .common import resolve_project_path
 
-VALID_PRECISIONS = frozenset({"bf16", "int8", "int4"})
+# "awq" is a pre-quantized checkpoint rather than a load-time conversion: the weights ship
+# already quantized and the checkpoint carries its own quantization_config, so it needs a distinct
+# model id (e.g. Qwen/Qwen3-14B-AWQ) rather than a different loader flag on the base model.
+PREQUANTIZED_PRECISIONS = frozenset({"awq"})
+VALID_PRECISIONS = frozenset({"bf16", "int8", "int4"}) | PREQUANTIZED_PRECISIONS
 DEFAULT_CONFIG = "configs/experiment.toml"
 
 

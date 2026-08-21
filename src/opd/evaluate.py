@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import atomic_write_json, slug
-from .config import DEFAULT_CONFIG, load_config
+from .config import DEFAULT_CONFIG, VALID_PRECISIONS, load_config
 from .generate import Completion, build_vllm_engine, generate_hf, generate_vllm
 from .grading import extract_gold, grade, summarize
 from .hub import resolve_model_revision
@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Local trained-student directory to evaluate instead of the Hub weights.",
     )
-    parser.add_argument("--precision", choices=("bf16", "int8", "int4"), default="bf16")
+    parser.add_argument("--precision", choices=sorted(VALID_PRECISIONS), default="bf16")
     # Choices are validated against the config rather than hardcoded, so adding a benchmark is a
     # config change alone. config.evaluation_dataset() raises listing the configured names.
     parser.add_argument("--benchmark", required=True)

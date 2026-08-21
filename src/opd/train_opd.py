@@ -20,7 +20,7 @@ from transformers import set_seed
 from trl.experimental.distillation import DistillationConfig, DistillationTrainer
 
 from .common import atomic_write_json
-from .config import DEFAULT_CONFIG, load_config
+from .config import DEFAULT_CONFIG, VALID_PRECISIONS, load_config
 from .hub import resolve_model_revision
 from .models import load_teacher, load_tokenizer, model_footprint_bytes
 from .runtime import GIB, condition_slug, load_manifest, peak_vram_gib, reset_vram_tracking, runtime_environment
@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--manifest", default="data/manifest.json")
     parser.add_argument("--teacher", required=True)
-    parser.add_argument("--precision", choices=("bf16", "int8", "int4"), required=True)
+    parser.add_argument("--precision", choices=sorted(VALID_PRECISIONS), required=True)
     parser.add_argument("--max-steps", type=int, help="Override the configured step budget.")
     parser.add_argument("--subset", help="Override the training subset, e.g. 'smoke' for a fast check.")
     parser.add_argument("--optimizer", help="Override the optimizer, for example adamw_8bit to cut memory.")

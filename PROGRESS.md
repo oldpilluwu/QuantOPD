@@ -128,30 +128,27 @@ the way OPD samples.
 | Qwen3-1.7B (student) | BF16 | 0.70 | 0.821 | 0.16 | 532.4 | vLLM |
 | Qwen3-4B (teacher) | BF16 | 0.81 | 0.940 | 0.16 | 531.8 | vLLM |
 | Qwen3-14B (teacher) | INT4 | 0.81 | 0.942 | 0.14 | 526.2 | Transformers |
+| Qwen3-14B (teacher) | BF16 | 0.82 | 0.964 | 0.17 | 527.8 | vLLM |
 
-**The two teachers are indistinguishable on this benchmark.** A 3.5x larger teacher at comparable
-memory (9.05 vs 7.49 GiB) buys nothing measurable. Two explanations with opposite implications:
+**MATH-500 is saturated.** Going 4B -> 14B at full precision, a 3.5x size increase, buys one
+point (0.81 -> 0.82). INT4 costs ~1 point raw and ~2 on finished completions, about two problems
+out of 83. At n=100 the interval is roughly +/-9 points, so all three teachers are statistically
+indistinguishable. The benchmark stopped measuring teacher capability somewhere below 4B.
 
-1. MATH-500 is saturated: both teachers sit at ~0.94 on finished completions, so only ~6% headroom
-   remains and teacher capability is no longer being measured.
-2. INT4 quantization damage cancels the scale advantage.
+Consequences:
 
-**Qwen3-14B BF16 separates them.** It is 27.5 GiB, too large to be an OPD teacher on this card, but
-inference-only it fits (BF16 routes through vLLM, so it is also fast). If it also scores ~0.81,
-MATH-500 is saturated. If it scores meaningfully higher, INT4 damaged the teacher -- which would be
-a Phase 1 fidelity result arriving early.
+- **A harder benchmark is mandatory, not optional.** Omni-MATH replaces GSM8K for this reason.
+- **AWQ cannot be evaluated on MATH-500 either.** If NF4 costs only ~1 point here, a better
+  quantizer has no room to show an improvement. Quantizer comparisons have to run on the hard set.
+- **The teacher-quality question is not settled.** Benchmark accuracy is an argmax-only summary
+  while the OPD objective consumes full token-level distributions, so teachers that tie on accuracy
+  can still supervise differently. Trajectory scoring is now the load-bearing measurement rather
+  than a diagnostic.
 
-This does **not** show the teachers are equally good for distillation. Benchmark accuracy is an
-argmax-only summary; the OPD objective consumes full token-level distributions. Two teachers can
-tie on accuracy and supervise very differently. It does mean the trajectory-scoring stage is now
-the load-bearing measurement rather than a diagnostic, and that a harder benchmark is required
-rather than optional.
-
-Caveats: n=100 gives roughly a +/-9 point interval. The teachers ran on different backends (vLLM
-for BF16, Transformers for INT4), though greedy decoding makes that a small effect and the
-agreement is closer than backend noise would explain. Identical 0.16 truncation and near-identical
-mean length across all three models is unexplained; accuracy differs enough that the models are
-clearly distinct, so it is most likely difficulty-driven.
+Caveats: the teachers ran on different backends (vLLM for BF16, Transformers for INT4), though
+greedy decoding makes that a small effect. Near-identical truncation and mean length across all
+four models is unexplained; accuracy differs enough that the models are clearly distinct, so it is
+most likely difficulty-driven.
 
 The pipeline works end to end and the `dtype=` kwarg is fine on transformers 4.57.6. Parse-failure
 rate was 0.0 throughout. Truncated completions are near-uniformly wrong: 69 of the student's 70

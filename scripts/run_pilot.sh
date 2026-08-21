@@ -11,6 +11,8 @@
 set -euo pipefail
 
 CONFIG="${CONFIG:-configs/experiment.toml}"
+# model:precision pairs. Qwen3-14B-AWQ is a distinct checkpoint, not a flag on Qwen3-14B.
+# Add "Qwen/Qwen3-14B-AWQ:awq" once autoawq is confirmed working on this box.
 CONDITIONS="${CONDITIONS:-Qwen/Qwen3-4B:bf16 Qwen/Qwen3-14B:int4}"
 # GSM8K is configured but excluded by default: a 1.7B student ceilings there.
 BENCHMARKS="${BENCHMARKS:-math500 omnimath}"

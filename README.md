@@ -109,6 +109,14 @@ available too, but requires the `flash-attn` package and helps far less than bat
 `--backend vllm` is rejected for quantized precisions: the engine loads unquantized weights, so it
 would report INT4 while measuring BF16.
 
+`--precision awq` loads a **pre-quantized checkpoint** (`Qwen/Qwen3-14B-AWQ`, 9.29 GiB -- a near
+match for bitsandbytes NF4's 9.05 GiB, so quantizer-vs-quantizer is controlled for memory). It is a
+separate model id, not a flag on the base model, and the loader honours the checkpoint's own
+float16 compute dtype because AWQ GEMM kernels are built for it. The run aborts if the checkpoint's
+`quant_method` does not match the requested precision, so a base model can never be measured as
+AWQ. Loading needs `autoawq`, which is archived upstream with kernels last built against torch 2.5;
+if it fails on this stack, serving the model through vLLM is the fallback.
+
 Accuracy is also sliced by whatever grouping columns a benchmark declares (`level` and `subject`
 for MATH-500, `difficulty` for Omni-MATH) into `accuracy_by_group`. That slice is free — the
 completions already exist — and it shows whether a headline score is ceilinged on easy items, and
