@@ -186,10 +186,17 @@ are far too wide to claim it.
 ### Two measurement bugs found here
 
 - **Math-Verify treats a timeout as a wrong answer.** A "Timeout during comparison" appeared on the
-  14B BF16 run; `verify` logs a warning and returns `False`, so grading failures were silently
-  counted as model failures, biased toward the hardest problems. Now `raise_on_error=True` makes
-  them raise and be counted in `verification_errors`, and the timeout is 15s rather than 5s because
-  olympiad answers carry heavier expressions.
+  14B BF16 run; with `raise_on_error=False` (the default) `verify` logs a warning and returns
+  `False`, so grading failures were silently counted as model failures, biased toward the hardest
+  problems where sympy has the most work to do. Every call now sets `raise_on_error=True`, and the
+  timeout is 15s rather than 5s.
+
+  Note `TimeoutException` subclasses **`BaseException`, not `Exception`**, so `except Exception`
+  does not catch it. The first attempt at this fix therefore turned a silent wrong answer into an
+  aborted run: one pathological expression killed a full 300-item evaluation. Both `parse` and
+  `verify` failures are now caught by name and recorded, and `verification_timeouts` is reported
+  separately from `verification_errors`. A non-trivial timeout count biases *comparisons*, not just
+  absolute numbers, because it concentrates on the hardest problems.
 - **Accuracy was reported without any interval**, which invites over-reading a 7-point spread.
   Reports now carry a Wilson `accuracy_ci95`.
 

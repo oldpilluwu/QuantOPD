@@ -8,6 +8,9 @@ and that mathematically equivalent answers in different forms compare equal.
 from __future__ import annotations
 
 import unittest
+from unittest import mock
+
+from math_verify.errors import TimeoutException
 
 from opd.grading import extract_gold, grade, gsm8k_gold, summarize, wilson_interval
 
@@ -57,6 +60,56 @@ class GradeTest(unittest.TestCase):
         self.assertFalse(result.correct)
         self.assertFalse(result.prediction_parseable)
         self.assertTrue(result.gold_parseable)
+
+
+class GradingFailureTest(unittest.TestCase):
+    """A grading failure must be counted -- never raised, never scored as a wrong answer.
+
+    Math-Verify's TimeoutException subclasses BaseException, so `except Exception` does not catch
+    it and one pathological olympiad expression aborts an entire evaluation run.
+    """
+
+    def test_timeout_exception_is_not_an_exception_subclass(self) -> None:
+        """The property that makes this easy to get wrong."""
+        self.assertFalse(issubclass(TimeoutException, Exception))
+        self.assertTrue(issubclass(TimeoutException, BaseException))
+
+    def test_comparison_timeout_is_caught_and_recorded(self) -> None:
+        def boom(*args, **kwargs):
+            raise TimeoutException("Timeout during comparison")
+
+        with mock.patch("opd.grading.verify", side_effect=boom):
+            result = grade("10", r"\boxed{10}")
+        self.assertFalse(result.correct)
+        self.assertTrue(result.prediction_parseable)
+        self.assertIn("Timeout", result.error)
+
+    def test_parse_timeout_is_caught_and_recorded(self) -> None:
+        def boom(*args, **kwargs):
+            raise TimeoutException("Timeout during parsing")
+
+        with mock.patch("opd.grading.parse", side_effect=boom):
+            result = grade("10", r"\boxed{10}")
+        self.assertFalse(result.correct)
+        self.assertIn("Timeout", result.error)
+
+    def test_sympy_style_exception_is_caught_and_recorded(self) -> None:
+        with mock.patch("opd.grading.verify", side_effect=ValueError("sympy exploded")):
+            result = grade("10", r"\boxed{10}")
+        self.assertFalse(result.correct)
+        self.assertIn("ValueError", result.error)
+
+    def test_timeouts_are_counted_separately_from_other_errors(self) -> None:
+        def boom(*args, **kwargs):
+            raise TimeoutException("Timeout during comparison")
+
+        with mock.patch("opd.grading.verify", side_effect=boom):
+            timed_out = grade("10", r"\boxed{10}")
+        with mock.patch("opd.grading.verify", side_effect=ValueError("nope")):
+            errored = grade("10", r"\boxed{10}")
+        summary = summarize([timed_out, errored, grade("10", r"\boxed{10}")])
+        self.assertEqual(summary["verification_errors"], 2)
+        self.assertEqual(summary["verification_timeouts"], 1)
 
 
 class WilsonIntervalTest(unittest.TestCase):

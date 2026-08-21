@@ -9,6 +9,8 @@ Two things here are load-bearing and were established by probing Math-Verify 0.9
 2. Math-Verify's timeout uses signals on Linux and multiprocessing elsewhere, and the latter is
    unusable on Windows. Production runs on Linux and keeps the timeout; other platforms disable it
    so the CPU tests can run.
+3. ``TimeoutException`` subclasses ``BaseException`` rather than ``Exception``, so it must be
+   caught by name. Missing that turns one pathological olympiad expression into an aborted run.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from math_verify import parse, verify
+from math_verify.errors import TimeoutException
 
 # A pathological prediction can send sympy into a very long simplification. On Linux this is
 # bounded; see the module docstring for why other platforms cannot be. The default of 5s was too
@@ -78,26 +81,39 @@ def extract_gold(benchmark: str, answer_field: str) -> str:
     return answer_field.strip()
 
 
+def _parse_or_fail(text: str, stage: str) -> tuple[list[Any], str | None]:
+    """Parse one expression, converting any failure into a message instead of an exception."""
+    try:
+        return parse(text, parsing_timeout=PARSE_TIMEOUT_SECONDS, raise_on_error=True), None
+    except TimeoutException:
+        return [], f"TimeoutException during {stage} parsing"
+    except Exception as error:  # noqa: BLE001 - sympy raises a wide variety of exceptions
+        return [], f"{type(error).__name__} during {stage} parsing: {error}"
+
+
 def grade(gold: str, prediction: str) -> Grade:
     """Grade one prediction against one gold answer.
 
-    ``correct`` is always a bool: an unparseable prediction is a wrong answer, not a missing
-    measurement. ``prediction_parseable`` is reported separately so a model that reasons well but
-    formats badly is distinguishable from one that is simply wrong.
-    """
-    gold_parsed = parse(r"\boxed{" + gold.strip() + "}", parsing_timeout=PARSE_TIMEOUT_SECONDS)
-    if not gold_parsed:
-        # A gold answer we cannot parse is a dataset/harness problem, not a model failure.
-        return Grade(correct=False, gold_parseable=False, prediction_parseable=False)
+    Grading failures are *counted*, never raised and never silently scored as wrong. Both matter:
 
-    prediction_parsed = parse(prediction, parsing_timeout=PARSE_TIMEOUT_SECONDS)
-    if not prediction_parsed:
-        return Grade(correct=False, gold_parseable=True, prediction_parseable=False)
+    - Math-Verify's ``TimeoutException`` subclasses ``BaseException``, not ``Exception``, so a bare
+      ``except Exception`` does not catch it and one pathological expression aborts the whole run.
+    - With ``raise_on_error=False`` the same timeout instead returns ``False``, which is
+      indistinguishable from a wrong answer and biases against the hardest problems, where sympy
+      has the most work to do.
+
+    So every call sets ``raise_on_error=True`` and every failure is caught here explicitly.
+    """
+    gold_parsed, error = _parse_or_fail(r"\boxed{" + gold.strip() + "}", "gold")
+    if error is not None or not gold_parsed:
+        # Unparseable gold is a dataset or harness problem, not a model failure.
+        return Grade(correct=False, gold_parseable=False, prediction_parseable=False, error=error)
+
+    prediction_parsed, error = _parse_or_fail(prediction, "prediction")
+    if error is not None or not prediction_parsed:
+        return Grade(correct=False, gold_parseable=True, prediction_parseable=False, error=error)
 
     try:
-        # raise_on_error=True matters: by default Math-Verify logs a timeout or an internal error
-        # and returns False, which is indistinguishable from a genuinely wrong answer. Raising
-        # makes those countable so a grading failure cannot masquerade as a model failure.
         correct = bool(
             verify(
                 gold_parsed,
@@ -105,6 +121,13 @@ def grade(gold: str, prediction: str) -> Grade:
                 timeout_seconds=VERIFY_TIMEOUT_SECONDS,
                 raise_on_error=True,
             )
+        )
+    except TimeoutException:
+        return Grade(
+            correct=False,
+            gold_parseable=True,
+            prediction_parseable=True,
+            error="TimeoutException during comparison",
         )
     except Exception as error:  # noqa: BLE001 - sympy raises a wide variety of exceptions
         return Grade(
@@ -134,5 +157,9 @@ def summarize(grades: list[Grade]) -> dict[str, Any]:
         ),
         "prediction_parse_failure_rate": 1.0 - len(parseable) / total,
         "unparseable_gold": unparseable_gold,
+        # Grading failures, not model failures. A non-trivial timeout count means the score is
+        # depressed by sympy giving up rather than by the model being wrong, and it concentrates
+        # on the hardest problems -- so it biases comparisons, not just the absolute number.
         "verification_errors": sum(1 for item in grades if item.error is not None),
+        "verification_timeouts": sum(1 for item in grades if item.error and "Timeout" in item.error),
     }
