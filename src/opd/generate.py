@@ -15,6 +15,7 @@ the non-thinking shim, so ids -- not text -- are the safe interchange format.
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -123,12 +124,19 @@ def generate_hf(
     temperature: float = 1.0,
     top_p: float = 0.95,
     top_k: int = 0,
+    progress: bool = True,
 ) -> tuple[list[Completion], float]:
     """Generate with Transformers. Returns the completions and the elapsed seconds.
 
     Prompts are left-padded (the tokenizer is configured that way in :func:`opd.models
     .load_tokenizer`) so every sequence in a batch ends at the same position and the generated
     tokens start at a single, known offset.
+
+    Per-batch progress goes to stderr so stdout stays a clean JSON document. This path can run for
+    tens of minutes on a quantized teacher, and the per-batch numbers are what tell you whether to
+    change the batch size: ``steps`` is how many decode steps the batch actually ran, and
+    ``generate()`` only stops when *every* sequence in the batch has finished, so ``steps`` near
+    the cap while ``mean_new`` is far below it means stragglers are holding the batch open.
     """
     device = next(model.parameters()).device
     pad_id = tokenizer.pad_token_id
@@ -137,8 +145,12 @@ def generate_hf(
 
     # Group by length so a batch is not dominated by padding for its longest member.
     order = sorted(range(len(prompt_token_ids)), key=lambda i: len(prompt_token_ids[i]))
+    total_batches = (len(order) + batch_size - 1) // batch_size
+    batch_number = 0
     started = time.perf_counter()
     for start in range(0, len(order), batch_size):
+        batch_number += 1
+        batch_started = time.perf_counter()
         chunk = order[start : start + batch_size]
         widest = max(len(prompt_token_ids[i]) for i in chunk)
         input_ids = torch.full((len(chunk), widest), pad_id, dtype=torch.long)
@@ -159,12 +171,17 @@ def generate_hf(
             pad_token_id=pad_id,
             use_cache=True,
         )
+        steps = int(generated.shape[1] - widest)
+        batch_new_tokens = 0
+        finished_early = 0
         for row, index in enumerate(chunk):
             new_tokens = generated[row, widest:].tolist()
             # generate() right-pads finished sequences; drop everything from the first EOS on.
             if eos_id in new_tokens:
                 new_tokens = new_tokens[: new_tokens.index(eos_id) + 1]
             finish_reason = "length" if len(new_tokens) >= max_new_tokens else "stop"
+            batch_new_tokens += len(new_tokens)
+            finished_early += finish_reason == "stop"
             completions.append(
                 Completion(
                     index=index,
@@ -173,7 +190,35 @@ def generate_hf(
                     finish_reason=finish_reason,
                 )
             )
+
+        if progress:
+            batch_seconds = time.perf_counter() - batch_started
+            done = time.perf_counter() - started
+            eta = done / batch_number * (total_batches - batch_number)
+            peak = f"{torch.cuda.max_memory_allocated() / 1024**3:5.1f}" if torch.cuda.is_available() else "  n/a"
+            print(
+                f"[gen] batch {batch_number:>3}/{total_batches:<3}"
+                f" n={len(chunk):<3} prompt={widest:<5}"
+                f" steps={steps:<5} mean_new={batch_new_tokens / len(chunk):>6.0f}"
+                f" stop={finished_early:>3}/{len(chunk):<3}"
+                f" {batch_seconds:>6.1f}s"
+                f" {batch_new_tokens / max(batch_seconds, 1e-9):>7.1f} tok/s"
+                f" peak={peak} GiB"
+                f" eta={eta / 60:>5.1f}m",
+                file=sys.stderr,
+                flush=True,
+            )
+
     elapsed = time.perf_counter() - started
+    if progress:
+        total_new = sum(len(item.token_ids) for item in completions)
+        print(
+            f"[gen] done {len(completions)} completions,"
+            f" {total_new} tokens in {elapsed / 60:.1f}m"
+            f" ({total_new / max(elapsed, 1e-9):.1f} tok/s overall)",
+            file=sys.stderr,
+            flush=True,
+        )
 
     completions.sort(key=lambda item: item.index)
     return completions, elapsed

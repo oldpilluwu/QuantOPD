@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from .hub import resolve_model_revision
 from .models import load_bf16_inference_model, load_teacher, load_tokenizer, model_footprint_bytes
 from .prompts import is_non_thinking, render_prompt, render_prompt_ids
 from .runtime import (
+    GIB,
     condition_slug,
     load_benchmark,
     load_manifest,
@@ -138,6 +140,20 @@ def main() -> None:
                 attn_implementation,
             )
         footprint_bytes = model_footprint_bytes(model)
+        # Echo what actually got loaded before a long run starts, so a slow run is diagnosable
+        # while it is still running rather than only from the report afterwards.
+        header = (
+            f"[eval] {model_id} {args.precision} | backend=hf | batch={batch_size}"
+            f" | attn={attn_implementation}"
+        )
+        detail = (
+            f"[eval] weights={footprint_bytes / GIB:.2f} GiB"
+            f" | device={next(model.parameters()).device}"
+            f" | {len(items)} prompts | max_new_tokens={settings.max_new_tokens}"
+            f" | benchmark={args.benchmark}"
+        )
+        print(header, file=sys.stderr, flush=True)
+        print(detail, file=sys.stderr, flush=True)
         completions, elapsed = generate_hf(
             model,
             tokenizer,
