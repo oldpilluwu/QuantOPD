@@ -7,6 +7,21 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from .config import PREQUANTIZED_PRECISIONS, VALID_PRECISIONS
 
+# Kernel package each pre-quantized format needs on the Transformers path, with the caveat that
+# matters when it fails to build.
+KERNEL_PACKAGES = {
+    "awq": (
+        "autoawq",
+        "AutoAWQ is archived upstream and its kernels were last built against torch 2.5, "
+        "so it may not build on newer torch.",
+    ),
+    "gptq": (
+        "gptqmodel",
+        "gptqmodel is actively maintained but ships as an sdist, so it compiles on install "
+        "and needs a matching CUDA toolchain.",
+    ),
+}
+
 
 def require_single_cuda_gpu() -> int:
     if not torch.cuda.is_available():
@@ -111,11 +126,18 @@ def load_teacher(
         model = AutoModelForCausalLM.from_pretrained(model_id, **load_kwargs)
     except ImportError as error:  # pragma: no cover - depends on the GPU environment
         if prequantized:
+            package, caveat = KERNEL_PACKAGES.get(precision, (f"the {precision} kernel package", ""))
             raise RuntimeError(
-                f"Loading a {precision.upper()} checkpoint needs its kernel package. Try: "
-                "uv pip install autoawq. Note AutoAWQ is archived upstream and its kernels were "
-                "last built against torch 2.5, so this may fail on newer torch; serving the model "
-                "through vLLM is the fallback."
+                "\n".join(
+                    [
+                        f"Loading a {precision.upper()} checkpoint needs its kernel package.",
+                        f"  Install it with:  uv pip install {package}",
+                        f"  {caveat}",
+                        "  If that fails, re-run with --backend vllm: vLLM detects "
+                        f"{precision.upper()} from the checkpoint and needs no {package}.",
+                        f"  Underlying import error: {error}",
+                    ]
+                )
             ) from error
         raise
     if prequantized:
