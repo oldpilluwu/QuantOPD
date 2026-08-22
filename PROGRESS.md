@@ -200,26 +200,57 @@ are far too wide to claim it.
 - **Accuracy was reported without any interval**, which invites over-reading a 7-point spread.
   Reports now carry a Wilson `accuracy_ci95`.
 
-## Omni-MATH at full size (student only so far)
+## Omni-MATH at full size (300 items, all conditions, 2048-token budget)
 
-| Model | Precision | n | accuracy | 95% CI | on finished | truncation | verification errors |
-| --- | --- | ---: | ---: | :---: | ---: | ---: | ---: |
-| Qwen3-1.7B (student) | BF16 | 300 | 0.253 | [0.207, 0.305] | 0.354 | 0.31 | 1 |
+| Model | Precision | Memory | accuracy | 95% CI | on finished | truncation | backend |
+| --- | --- | ---: | ---: | :---: | ---: | ---: | --- |
+| Qwen3-1.7B (student) | BF16 | - | 0.253 | [0.207, 0.305] | 0.354 | 0.31 | vLLM |
+| Qwen3-4B | BF16 | 7.49 GiB | 0.317 | [0.267, 0.371] | 0.495 | 0.39 | vLLM |
+| Qwen3-14B | INT4 NF4 | 9.05 GiB | 0.343 | [0.292, 0.399] | 0.498 | 0.33 | Transformers |
+| Qwen3-14B-AWQ | AWQ | 9.29 GiB | 0.343 | [0.292, 0.399] | 0.508 | 0.34 | vLLM |
+| Qwen3-14B | BF16 | 27.5 GiB | 0.353 | [0.301, 0.409] | 0.513 | 0.34 | vLLM |
 
-The student moved 0.17 (n=50) -> 0.253 (n=300), inside the earlier [0.08, 0.29] interval. That is
-how much the first N items differ from the whole subsample, and it is the reason the n=50 and n=100
-numbers above cannot be read as an ordering.
+All conditions saw identical items, so the comparison is **paired**; McNemar's exact test on the
+discordant items is the right instrument, not overlap of marginal intervals.
 
-`verification_errors` is 1 in 300, so Math-Verify timeouts are not distorting the score.
+| Comparison | diff | discordant | p |
+| --- | ---: | :---: | ---: |
+| student vs 14B BF16 | -0.100 | 13/43 | **0.0001** |
+| student vs 14B INT4 | -0.090 | 16/43 | **0.0006** |
+| student vs 14B AWQ | -0.090 | 18/45 | **0.0009** |
+| student vs 4B BF16 | -0.063 | 14/33 | **0.0079** |
+| 14B BF16 vs 4B BF16 | +0.037 | 27/16 | 0.126 |
+| 14B INT4 vs 4B BF16 (equal memory) | +0.027 | 28/20 | 0.312 |
+| 14B BF16 vs 14B INT4 | +0.010 | 23/20 | 0.761 |
+| 14B AWQ vs 14B INT4 | +0.000 | 22/22 | 1.000 |
 
-**The teacher numbers in the table above are NOT comparable to this one:** they ran with
-`--limit 100`, which takes the *first* 100 frozen indices, while the student ran all 300. Read
-naively it says a 1.7B student beats both 14B teachers. It does not; the item sets differ. Every
-condition must be re-run at the full 300 before anything is compared.
+**The gate is passed decisively.** Every teacher beats the student significantly, by 6.3 to 10
+points. Omni-MATH has real headroom where MATH-500 had none.
 
-`opd-report` now detects this: `find_item_count_mismatches` groups evaluations by benchmark and
-emits a `comparability_warnings` block plus a loud terminal warning when conditions within one
-benchmark were scored on different item counts.
+**No two teachers are distinguishable at n=300.** Size buys +3.7 points (p=0.13), 4-bit
+quantization costs ~1 point (p=0.76), and the choice of quantizer costs nothing at all.
+
+**The central equal-memory comparison is directionally right but unproven:** 14B INT4 at 9.05 GiB
+beats 4B BF16 at 7.49 GiB by 2.7 points, p=0.31.
+
+**AWQ and INT4 tie exactly at 0.343 while disagreeing on 44 items (22/22 discordant).** Two
+measurably different models producing an identical score is direct evidence that benchmark accuracy
+does not capture teacher behaviour -- which is the case for treating trajectory KL, not accuracy,
+as the instrument that separates teachers.
+
+### Where the signal lives (Omni-MATH difficulty slice)
+
+| Band | n | student | 4B BF16 | 14B INT4 | 14B BF16 | gap | student trunc | 14B trunc |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| easy (<=3.5) | 60 | 0.533 | 0.650 | 0.650 | 0.717 | +0.183 | 0.10 | 0.10 |
+| mid (4-5.5) | 155 | 0.174 | 0.245 | 0.303 | 0.284 | +0.110 | 0.37 | 0.36 |
+| hard (6-7) | 47 | 0.213 | 0.191 | 0.191 | 0.191 | -0.021 | 0.34 | 0.43 |
+| very hard (7.5+) | 38 | 0.184 | 0.237 | 0.211 | 0.263 | +0.079 | 0.39 | 0.50 |
+
+The teacher advantage lives in the easy and mid bands (215 of 300 items). Above difficulty 6 every
+model collapses to ~0.19-0.21 and truncation reaches 50%, so those items measure the token budget
+rather than reasoning. This is a caveat to state rather than a filter to apply -- selecting the
+bands where an effect appears would be choosing the answer.
 
 ## Benchmark change after those results
 

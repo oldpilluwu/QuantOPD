@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-from opd.report import build_headline, find_item_count_mismatches
+from opd.report import _mcnemar_exact, build_headline, find_item_count_mismatches
 
 
 def row(model: str, precision: str, tag: str, benchmark: str, items: int, accuracy: float) -> dict:
@@ -85,3 +85,30 @@ class HeadlineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PairedComparisonTest(unittest.TestCase):
+    """McNemar on discordant pairs, which is what the headline claim actually rests on."""
+
+    def test_identical_conditions_are_not_significant(self) -> None:
+        self.assertEqual(_mcnemar_exact(0, 0), 1.0)
+
+    def test_symmetric_discordance_is_not_significant(self) -> None:
+        """22 vs 22 -- the observed 14B INT4 / AWQ tie: different models, identical score."""
+        self.assertAlmostEqual(_mcnemar_exact(22, 22), 1.0, places=6)
+
+    def test_lopsided_discordance_is_significant(self) -> None:
+        """13 vs 43 -- the observed student vs 14B BF16 gap."""
+        self.assertLess(_mcnemar_exact(13, 43), 0.001)
+
+    def test_p_value_is_symmetric_in_its_arguments(self) -> None:
+        self.assertEqual(_mcnemar_exact(14, 33), _mcnemar_exact(33, 14))
+
+    def test_marginal_discordance_is_not_significant(self) -> None:
+        """20 vs 28 -- the observed 4B BF16 vs 14B INT4 equal-memory comparison."""
+        self.assertGreater(_mcnemar_exact(20, 28), 0.05)
+
+    def test_p_value_stays_in_range(self) -> None:
+        for a, b in ((0, 1), (1, 0), (5, 5), (100, 3), (1, 1)):
+            self.assertGreaterEqual(_mcnemar_exact(a, b), 0.0)
+            self.assertLessEqual(_mcnemar_exact(a, b), 1.0)

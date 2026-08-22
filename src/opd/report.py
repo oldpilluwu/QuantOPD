@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from itertools import combinations
+from math import comb
 from pathlib import Path
 from typing import Any
 
@@ -139,6 +141,64 @@ def find_item_count_mismatches(evaluations: list[dict[str, Any]]) -> list[dict[s
     ]
 
 
+def _mcnemar_exact(only_a: int, only_b: int) -> float:
+    """Two-sided exact binomial p-value over the discordant pairs."""
+    discordant = only_a + only_b
+    if discordant == 0:
+        return 1.0
+    smaller = min(only_a, only_b)
+    tail = sum(comb(discordant, i) for i in range(smaller + 1)) / 2**discordant
+    return min(1.0, 2 * tail)
+
+
+def paired_comparisons(config: ExperimentConfig) -> list[dict[str, Any]]:
+    """Compare every pair of conditions on the items they both saw.
+
+    Conditions are scored on the same frozen indices, so the comparison is paired and McNemar's
+    exact test on the discordant items is far more powerful than asking whether two marginal
+    confidence intervals overlap. At n=300 with ~10-point effects that difference decides whether
+    a real result is visible at all -- and "did the OPD student beat the baseline student" is
+    precisely this comparison.
+    """
+    per_benchmark: dict[str, dict[str, dict[int, bool]]] = {}
+    for path in sorted(config.eval.output_dir.glob("*/*/per-item.json")):
+        benchmark = path.parent.name
+        condition = path.parent.parent.name
+        with path.open("r", encoding="utf-8") as handle:
+            rows = json.load(handle)
+        per_benchmark.setdefault(benchmark, {})[condition] = {
+            int(row["item_index"]): bool(row["correct"]) for row in rows
+        }
+
+    results: list[dict[str, Any]] = []
+    for benchmark, conditions in sorted(per_benchmark.items()):
+        for left, right in combinations(sorted(conditions), 2):
+            shared = sorted(set(conditions[left]) & set(conditions[right]))
+            if not shared:
+                continue
+            only_left = sum(1 for i in shared if conditions[left][i] and not conditions[right][i])
+            only_right = sum(1 for i in shared if conditions[right][i] and not conditions[left][i])
+            p_value = _mcnemar_exact(only_left, only_right)
+            accuracy_left = sum(conditions[left][i] for i in shared) / len(shared)
+            accuracy_right = sum(conditions[right][i] for i in shared) / len(shared)
+            results.append(
+                {
+                    "benchmark": benchmark,
+                    "a": left,
+                    "b": right,
+                    "paired_items": len(shared),
+                    "accuracy_a": accuracy_left,
+                    "accuracy_b": accuracy_right,
+                    "difference": accuracy_left - accuracy_right,
+                    "only_a_correct": only_left,
+                    "only_b_correct": only_right,
+                    "mcnemar_p": p_value,
+                    "significant_at_05": p_value < 0.05,
+                }
+            )
+    return results
+
+
 def build_headline(evaluations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One row per (condition, benchmark): the table the pilot exists to produce."""
     headline: dict[tuple[str, str], dict[str, Any]] = {}
@@ -188,9 +248,11 @@ def main() -> None:
     training = collect_training(config)
 
     mismatches = find_item_count_mismatches(evaluations)
+    comparisons = paired_comparisons(config)
     summary = {
         "schema_version": 1,
         "comparability_warnings": mismatches,
+        "paired_comparisons": comparisons,
         "headline": build_headline(evaluations),
         "evaluations": evaluations,
         "scoring": scoring,
@@ -201,6 +263,7 @@ def main() -> None:
     write_csv(output_dir / "scoring.csv", scoring)
     write_csv(output_dir / "training.csv", training)
     write_csv(output_dir / "headline.csv", summary["headline"])
+    write_csv(output_dir / "paired-comparisons.csv", comparisons)
 
     print(
         json.dumps(
@@ -209,6 +272,7 @@ def main() -> None:
                 "evaluations": len(evaluations),
                 "scoring": len(scoring),
                 "training": len(training),
+            "paired_comparisons": len(comparisons),
             },
             indent=2,
         )
