@@ -184,7 +184,18 @@ If the 14B INT4 condition runs out of memory on a 48 GB card, in order: `--optim
 uv run opd-report
 ```
 
-Joins every stage's reports into `artifacts/summary/{summary.json,headline.csv,...}`.
+Joins every stage's reports into `artifacts/summary/{summary.json,headline.csv,...}`, including
+paired McNemar comparisons between conditions and a warning when conditions were scored on
+different item counts.
+
+```bash
+uv run opd-plot --benchmark omnimath
+```
+
+Writes figures to `artifacts/summary/figures/`. Needs the optional viz group
+(`uv sync --group viz`), which is deliberately not installed on the GPU box. Every accuracy mark
+carries its 95% interval, because at n=300 most of the differences in this study are inside it and
+a plain bar chart would hide exactly that.
 
 ## Local checks
 

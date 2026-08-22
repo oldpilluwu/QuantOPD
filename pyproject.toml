@@ -32,11 +32,17 @@ opd-trajectories = "opd.trajectories:main"
 opd-score = "opd.score:main"
 opd-train = "opd.train_opd:main"
 opd-report = "opd.report:main"
+opd-plot = "opd.plots:main"
 
 [dependency-groups]
 dev = [
   "pytest>=8.3,<10",
   "ruff>=0.11,<1",
+]
+# Figures are made on the analysis machine, not the GPU box, so matplotlib stays out of the
+# default install: uv sync --group viz
+viz = [
+  "matplotlib>=3.9,<4",
 ]
 
 [tool.uv]
