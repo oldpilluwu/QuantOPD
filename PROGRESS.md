@@ -8,14 +8,17 @@ Last updated: 2026-08-22
 two-step OPD smoke training on an NVIDIA RTX A6000 (49,140 MiB, driver 610.43.02) at commit
 `d91142a`.
 
-**Jump-ahead pilot: implemented; benchmarking verified on GPU, nothing else run yet.** A vertical
-slice covering benchmarking, trajectory scoring, OPD, and re-benchmarking exists on branch
-`jump-ahead` (67 CPU tests, `ruff` clean). Benchmark evaluation has run on the A6000 for the
-student and both teachers; see "First GPU results" below, which already contains a result worth
-acting on.
+**Jump-ahead pilot: benchmarking complete on GPU; training not started.** A vertical slice
+covering benchmarking, trajectory scoring, OPD, and re-benchmarking exists on branch `jump-ahead`
+(100 CPU tests, `ruff` clean). Both benchmarks have been run for the student and every teacher
+condition.
 
-**Not yet run on GPU:** Omni-MATH, trajectory generation, scoring, and OPD training itself. The
-only measured numbers in this document are the Phase 0 table and the First GPU results table.
+**Decided by the benchmark stage:** MATH-500 is saturated and was replaced as the discriminating
+benchmark by Omni-MATH, where all four teachers beat the student significantly. See the two results
+sections below.
+
+**Not yet run on GPU:** trajectory generation, teacher scoring, and OPD training itself. Every
+number in this document below the Phase 0 table comes from a completed run; nothing is projected.
 
 An earlier `phase-1` branch and a downloaded trajectory bundle exist but were deliberately
 abandoned in favour of this simpler implementation. They are untouched, not merged, and not used.
